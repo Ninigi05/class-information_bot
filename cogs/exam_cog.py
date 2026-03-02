@@ -31,5 +31,6 @@ class ExamCog(commands.GroupCog, name="exam"):
         save_user_data(user_id, data)
 
         await interaction.response.send_message(f"試験時の{period}限の開始時刻を{time}に設定しました。",ephemeral = True)
+
 async def setup(bot: commands.Bot):
     await bot.add_cog(ExamCog(bot))
