@@ -1,5 +1,17 @@
-.env
-data/
+# Pythonの一時ファイル
 __pycache__/
-token.pickle
+*.py[cod]
+
+# 環境変数（トークンなど）
+.env
+
+# ユーザーデータと一時的な状態記録
+*.json
+!example.json  # もし雛形があればそれだけ残す設定
+
+# アーカイブやドキュメント（必要なら手動で管理）
+*.zip
+*.pdf
+
+# ログファイル
 *.log
