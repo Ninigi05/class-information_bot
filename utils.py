@@ -12,3 +12,14 @@ def save_user_data(user_id, data):
     os.makedirs("data",exist_ok=True)
     with open(f"data/{user_id}.json","w",encoding="utf-8") as f:
         json.dump(data,f,indet=4, ensure_ascii = False)
+
+async def send_dm(user, message):
+    try:
+        dm = await user.create_dm()
+        await dm.send(message)
+    except Exception as e:
+        try:
+            uid = user.id
+        except Exception:
+            uid = "unknown"
+        print(f"DM送信失敗: {uid} ({e})")
