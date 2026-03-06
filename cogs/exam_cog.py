@@ -73,7 +73,7 @@ class ExamCog(commands.GroupCog, name="exam"):
 
     @app_commands.command(name="delete", description="指定した試験時間割を削除します")
     @app_commands.describe(name="削除する時間割名")
-    @app_commands.autocomplete(name=exam_name_autocomplete)
+    @app_commands.autocomplete(name=self.exam_name_autocomplete)
     async def exam_delete(self, interaction: discord.Interaction, name: str):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
@@ -103,7 +103,7 @@ class ExamCog(commands.GroupCog, name="exam"):
 
     @app_commands.command(name="show", description="指定した試験時間割の中身を表示します")
     @app_commands.describe(name="表示する時間割名")
-    @app_commands.autocomplete(name=exam_name_autocomplete)
+    @app_commands.autocomplete(name=self.exam_name_autocomplete)
     async def exam_show(self, interaction: discord.Interaction, name: str):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
