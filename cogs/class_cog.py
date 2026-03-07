@@ -6,19 +6,7 @@ from datetime import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
 import japanize_matplotlib
-from utils import load_user_data, save_user_data, send_dm, send_long_dm
-
-WEEKDAYS = ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"]
-WEEKDAY_MAP = {w: i for i, w in enumerate(WEEKDAYS)}
-
-PERIOD_TO_TIME = {
-    "1": "09:00",
-    "2": "10:45",
-    "3": "13:15",
-    "4": "15:00",
-    "5": "16:45",
-    "6": "18:25"
-}
+from utils import load_user_data, save_user_data, send_dm, send_long_dm, WEEKDAYS, WEEKDAY_MAP, PERIOD_TO_TIME
 
 
 class ClassCog(commands.GroupCog, name="class"):

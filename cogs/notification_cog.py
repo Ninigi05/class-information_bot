@@ -6,25 +6,8 @@ import traceback
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
-from datetime import datetime
-from utils import load_user_data, save_user_data, send_dm, send_long_dm
-
-WEEKDAYS = ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"]
-WEEKDAY_MAP = {w: i for i, w in enumerate(WEEKDAYS)}
-
-PERIOD_TO_TIME = {
-    "1": "09:00",
-    "2": "10:45",
-    "3": "13:15",
-    "4": "15:00",
-    "5": "16:45",
-    "6": "18:25"
-}
-
-DEFAULT_NOTIFY = {
-    "normal": {"first": 15, "second": 10},
-    "exam": {"first": 30, "second": 25}
-}
+from datetime import datetime, date
+from utils import load_user_data, save_user_data, send_dm, send_long_dm, WEEKDAYS, WEEKDAY_MAP, PERIOD_TO_TIME, DEFAULT_NOTIFY
 
 BASE_DIR = os.getcwd()
 MORNING_MARK_FILE = os.path.join(BASE_DIR, "morning_sent.json")
@@ -324,8 +307,21 @@ class NotificationCog(commands.Cog):
                         continue
 
                     classes = data.get("classes", []) or []
-                    if not classes and not data.get("makeup_classes"):
+                    exam_schedules = data.get("exam_schedules", []) or []
+                    if not classes and not data.get("makeup_classes") and not exam_schedules:
                         continue
+
+                    # check if today falls within an active exam schedule
+                    active_exam = None
+                    for sched in exam_schedules:
+                        try:
+                            s_date = date.fromisoformat(sched.get("start", ""))
+                            e_date = date.fromisoformat(sched.get("end", ""))
+                            if s_date <= date.fromisoformat(today_str) <= e_date:
+                                active_exam = sched
+                                break
+                        except Exception:
+                            continue
 
                     # determine effective weekday (apply per-class date override if present)
                     target_weekday = today_weekday
@@ -334,121 +330,243 @@ class NotificationCog(commands.Cog):
                             target_weekday = cls["overrides"][today_str]
                             break
 
-                    today_classes = [c for c in classes if c.get("day") == target_weekday]
-                    makeups_today = [
-                        m for m in data.get("makeup_classes", []) or []
-                        if m.get("date") == today_str
-                    ]
-
-                    # combine regular and makeup classes
-                    final_classes = list(today_classes)
-                    for m in makeups_today:
-                        final_classes.append({
-                            "period": m.get("time", "?"),
-                            "time": m.get("time"),
-                            "subject": m.get("subject"),
-                            "room": m.get("room", "未設定"),
-                        })
-
-                    # resolve notification offsets
-                    user_notify = data.get("notify_settings", {}) or {}
-                    normal_cfg = user_notify.get("normal") or DEFAULT_NOTIFY["normal"]
-                    try:
-                        first_off = int(normal_cfg.get("first"))
-                        second_off = int(normal_cfg.get("second"))
-                    except Exception:
-                        first_off = DEFAULT_NOTIFY["normal"]["first"]
-                        second_off = DEFAULT_NOTIFY["normal"]["second"]
-                    if first_off < second_off:
-                        first_off, second_off = second_off, first_off
-                    offsets = (first_off, second_off)
-
                     manual_cancellations = data.get("manual_cancellations", []) or []
-                    period_overrides = data.get("period_overrides", {}) or {}
+                    user_notify = data.get("notify_settings", {}) or {}
 
-                    # per-class reminder notifications
-                    for cls in final_classes:
-                        room = cls.get("room", "未設定")
-                        if "room_overrides" in cls and today_str in cls["room_overrides"]:
-                            room = cls["room_overrides"][today_str]
+                    if active_exam:
+                        # --- exam period notification ---
+                        exam_classes = active_exam.get("classes", []) or []
+                        exam_classes_today = [c for c in exam_classes if c.get("day") == target_weekday]
+                        makeups_today = [
+                            m for m in data.get("makeup_classes", []) or []
+                            if m.get("date") == today_str
+                        ]
+                        final_classes = list(exam_classes_today)
+                        for m in makeups_today:
+                            final_classes.append({
+                                "period": m.get("time", "?"),
+                                "time": m.get("time"),
+                                "subject": m.get("subject"),
+                                "room": m.get("room", "未設定"),
+                            })
 
-                        p_key = str(cls.get("period"))
-                        time_str = (
-                            period_overrides.get(p_key)
-                            or cls.get("time")
-                            or PERIOD_TO_TIME.get(p_key)
-                        )
-                        if not time_str:
-                            continue
+                        # exam-specific period time overrides
+                        period_overrides = data.get("exam_period_overrides", {}) or {}
+                        # fall back to regular period overrides, then defaults
+                        regular_overrides = data.get("period_overrides", {}) or {}
+
+                        exam_cfg = user_notify.get("exam") or DEFAULT_NOTIFY["exam"]
                         try:
-                            h, m = map(int, time_str.split(":"))
-                            class_minutes = h * 60 + m
+                            first_off = int(exam_cfg.get("first"))
+                            second_off = int(exam_cfg.get("second"))
                         except Exception:
-                            continue
+                            first_off = DEFAULT_NOTIFY["exam"]["first"]
+                            second_off = DEFAULT_NOTIFY["exam"]["second"]
+                        if first_off < second_off:
+                            first_off, second_off = second_off, first_off
+                        offsets = (first_off, second_off)
 
-                        diff_minutes = class_minutes - now_minutes
-                        if diff_minutes not in offsets:
-                            continue
+                        # per-class exam reminders
+                        for cls in final_classes:
+                            room = cls.get("room", "未設定")
+                            if "room_overrides" in cls and today_str in cls["room_overrides"]:
+                                room = cls["room_overrides"][today_str]
 
-                        is_canceled = any(
-                            c.get("date") == today_str and c.get("subject") == cls.get("subject")
-                            for c in manual_cancellations
-                        )
+                            p_key = str(cls.get("period"))
+                            time_str = (
+                                period_overrides.get(p_key)
+                                or regular_overrides.get(p_key)
+                                or cls.get("time")
+                                or PERIOD_TO_TIME.get(p_key)
+                            )
+                            if not time_str:
+                                continue
+                            try:
+                                h, m_val = map(int, time_str.split(":"))
+                                class_minutes = h * 60 + m_val
+                            except Exception:
+                                continue
 
-                        msg = f"教室「{room}」で{diff_minutes}分後に授業「{cls.get('subject', '')}」が始まります"
-                        if is_canceled:
-                            msg += "\n※この授業は休講です（手動設定）"
+                            diff_minutes = class_minutes - now_minutes
+                            if diff_minutes not in offsets:
+                                continue
 
-                        try:
-                            await send_dm(user, msg)
-                        except Exception as e:
-                            print(f"[ERROR] DM送信失敗 (リマインダー) user={user_id}: {e}")
+                            is_canceled = any(
+                                c.get("date") == today_str and c.get("subject") == cls.get("subject")
+                                for c in manual_cancellations
+                            )
 
-                    # morning summary at 08:00
-                    if now.hour == 8 and now.minute == 0:
-                        morning_marker = _load_morning_sent()
-                        user_marks = morning_marker.get(str(user_id), {})
-                        if user_marks.get(today_str):
-                            continue
-
-                        morning_marker.setdefault(str(user_id), {})[today_str] = True
-                        _save_morning_sent(morning_marker)
-
-                        if final_classes:
-                            def sort_key(x):
-                                p = x.get("period")
-                                try:
-                                    return int(p)
-                                except Exception:
-                                    ts = (
-                                        period_overrides.get(str(p))
-                                        or x.get("time")
-                                        or PERIOD_TO_TIME.get(str(p))
-                                    )
-                                    try:
-                                        h2, m2 = map(int, ts.split(":"))
-                                        return h2 * 60 + m2
-                                    except Exception:
-                                        return 99999
-
-                            today_sorted = sorted(final_classes, key=sort_key)
-                            msg = f"本日の授業一覧（{WEEKDAYS[target_weekday]}）:\n"
-                            for cls in today_sorted:
-                                room = cls.get("room", "未設定")
-                                if "room_overrides" in cls and today_str in cls["room_overrides"]:
-                                    room = cls["room_overrides"][today_str]
-                                manual_hit = any(
-                                    c.get("date") == today_str and c.get("subject") == cls.get("subject")
-                                    for c in manual_cancellations
-                                )
-                                note = " ※休講（手動設定）" if manual_hit else ""
-                                period_display = cls.get("period", cls.get("time", "?"))
-                                msg += f"{period_display}限 {cls.get('subject')} ({room}){note}\n"
+                            msg = f"【試験期間】教室「{room}」で{diff_minutes}分後に授業「{cls.get('subject', '')}」が始まります"
+                            if is_canceled:
+                                msg += "\n※この授業は休講です（手動設定）"
 
                             try:
-                                await send_long_dm(user, msg)
+                                await send_dm(user, msg)
                             except Exception as e:
-                                print(f"[ERROR] DM送信失敗 (授業一覧) user={user_id}: {e}")
+                                print(f"[ERROR] DM送信失敗 (試験リマインダー) user={user_id}: {e}")
+
+                        # morning summary (exam) at 08:00
+                        if now.hour == 8 and now.minute == 0:
+                            morning_marker = _load_morning_sent()
+                            user_marks = morning_marker.get(str(user_id), {})
+                            if user_marks.get(today_str):
+                                continue
+
+                            morning_marker.setdefault(str(user_id), {})[today_str] = True
+                            _save_morning_sent(morning_marker)
+
+                            if final_classes:
+                                def sort_key_exam(x):
+                                    p = x.get("period")
+                                    try:
+                                        return int(p)
+                                    except Exception:
+                                        ts = (
+                                            period_overrides.get(str(p))
+                                            or regular_overrides.get(str(p))
+                                            or x.get("time")
+                                            or PERIOD_TO_TIME.get(str(p))
+                                        )
+                                        try:
+                                            h2, m2 = map(int, ts.split(":"))
+                                            return h2 * 60 + m2
+                                        except Exception:
+                                            return 99999
+
+                                today_sorted = sorted(final_classes, key=sort_key_exam)
+                                msg = f"【試験期間: {active_exam.get('name')}】本日の授業一覧（{WEEKDAYS[target_weekday]}）:\n"
+                                for cls in today_sorted:
+                                    room = cls.get("room", "未設定")
+                                    if "room_overrides" in cls and today_str in cls["room_overrides"]:
+                                        room = cls["room_overrides"][today_str]
+                                    manual_hit = any(
+                                        c.get("date") == today_str and c.get("subject") == cls.get("subject")
+                                        for c in manual_cancellations
+                                    )
+                                    note = " ※休講（手動設定）" if manual_hit else ""
+                                    period_display = cls.get("period", cls.get("time", "?"))
+                                    msg += f"{period_display}限 {cls.get('subject')} ({room}){note}\n"
+
+                                try:
+                                    await send_long_dm(user, msg)
+                                except Exception as e:
+                                    print(f"[ERROR] DM送信失敗 (試験授業一覧) user={user_id}: {e}")
+
+                    else:
+                        # --- normal period notification ---
+                        today_classes = [c for c in classes if c.get("day") == target_weekday]
+                        makeups_today = [
+                            m for m in data.get("makeup_classes", []) or []
+                            if m.get("date") == today_str
+                        ]
+
+                        # combine regular and makeup classes
+                        final_classes = list(today_classes)
+                        for m in makeups_today:
+                            final_classes.append({
+                                "period": m.get("time", "?"),
+                                "time": m.get("time"),
+                                "subject": m.get("subject"),
+                                "room": m.get("room", "未設定"),
+                            })
+
+                        # resolve notification offsets
+                        normal_cfg = user_notify.get("normal") or DEFAULT_NOTIFY["normal"]
+                        try:
+                            first_off = int(normal_cfg.get("first"))
+                            second_off = int(normal_cfg.get("second"))
+                        except Exception:
+                            first_off = DEFAULT_NOTIFY["normal"]["first"]
+                            second_off = DEFAULT_NOTIFY["normal"]["second"]
+                        if first_off < second_off:
+                            first_off, second_off = second_off, first_off
+                        offsets = (first_off, second_off)
+
+                        period_overrides = data.get("period_overrides", {}) or {}
+
+                        # per-class reminder notifications
+                        for cls in final_classes:
+                            room = cls.get("room", "未設定")
+                            if "room_overrides" in cls and today_str in cls["room_overrides"]:
+                                room = cls["room_overrides"][today_str]
+
+                            p_key = str(cls.get("period"))
+                            time_str = (
+                                period_overrides.get(p_key)
+                                or cls.get("time")
+                                or PERIOD_TO_TIME.get(p_key)
+                            )
+                            if not time_str:
+                                continue
+                            try:
+                                h, m_val = map(int, time_str.split(":"))
+                                class_minutes = h * 60 + m_val
+                            except Exception:
+                                continue
+
+                            diff_minutes = class_minutes - now_minutes
+                            if diff_minutes not in offsets:
+                                continue
+
+                            is_canceled = any(
+                                c.get("date") == today_str and c.get("subject") == cls.get("subject")
+                                for c in manual_cancellations
+                            )
+
+                            msg = f"教室「{room}」で{diff_minutes}分後に授業「{cls.get('subject', '')}」が始まります"
+                            if is_canceled:
+                                msg += "\n※この授業は休講です（手動設定）"
+
+                            try:
+                                await send_dm(user, msg)
+                            except Exception as e:
+                                print(f"[ERROR] DM送信失敗 (リマインダー) user={user_id}: {e}")
+
+                        # morning summary at 08:00
+                        if now.hour == 8 and now.minute == 0:
+                            morning_marker = _load_morning_sent()
+                            user_marks = morning_marker.get(str(user_id), {})
+                            if user_marks.get(today_str):
+                                continue
+
+                            morning_marker.setdefault(str(user_id), {})[today_str] = True
+                            _save_morning_sent(morning_marker)
+
+                            if final_classes:
+                                def sort_key(x):
+                                    p = x.get("period")
+                                    try:
+                                        return int(p)
+                                    except Exception:
+                                        ts = (
+                                            period_overrides.get(str(p))
+                                            or x.get("time")
+                                            or PERIOD_TO_TIME.get(str(p))
+                                        )
+                                        try:
+                                            h2, m2 = map(int, ts.split(":"))
+                                            return h2 * 60 + m2
+                                        except Exception:
+                                            return 99999
+
+                                today_sorted = sorted(final_classes, key=sort_key)
+                                msg = f"本日の授業一覧（{WEEKDAYS[target_weekday]}）:\n"
+                                for cls in today_sorted:
+                                    room = cls.get("room", "未設定")
+                                    if "room_overrides" in cls and today_str in cls["room_overrides"]:
+                                        room = cls["room_overrides"][today_str]
+                                    manual_hit = any(
+                                        c.get("date") == today_str and c.get("subject") == cls.get("subject")
+                                        for c in manual_cancellations
+                                    )
+                                    note = " ※休講（手動設定）" if manual_hit else ""
+                                    period_display = cls.get("period", cls.get("time", "?"))
+                                    msg += f"{period_display}限 {cls.get('subject')} ({room}){note}\n"
+
+                                try:
+                                    await send_long_dm(user, msg)
+                                except Exception as e:
+                                    print(f"[ERROR] DM送信失敗 (授業一覧) user={user_id}: {e}")
 
             except Exception as e:
                 print(f"[ERROR] _do_notification_pass 中の例外: {e}")

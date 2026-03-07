@@ -1,17 +1,36 @@
 import json
 import os
 
+BASE_DIR = os.getcwd()
+
+WEEKDAYS = ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"]
+WEEKDAY_MAP = {w: i for i, w in enumerate(WEEKDAYS)}
+
+PERIOD_TO_TIME = {
+    "1": "09:00",
+    "2": "10:45",
+    "3": "13:15",
+    "4": "15:00",
+    "5": "16:45",
+    "6": "18:25"
+}
+
+DEFAULT_NOTIFY = {
+    "normal": {"first": 15, "second": 10},
+    "exam": {"first": 30, "second": 25}
+}
+
 def load_user_data(user_id):
-    path = f"data/{user_id}.json"
+    path = os.path.join(BASE_DIR, f"user_{user_id}.json")
     if not os.path.exists(path):
-        return{}
-    with open(path,"r",encoding="utf-8") as f:
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 def save_user_data(user_id, data):
-    os.makedirs("data",exist_ok=True)
-    with open(f"data/{user_id}.json","w",encoding="utf-8") as f:
-        json.dump(data,f,indent=4, ensure_ascii = False)
+    path = os.path.join(BASE_DIR, f"user_{user_id}.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
 
 async def send_dm(user, message):
     try:
