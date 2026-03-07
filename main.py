@@ -39,8 +39,24 @@ GMAIL_CREDENTIALS = os.path.join("/app", os.getenv("GMAIL_CREDENTIALS") or "")
 # --- Discord Bot 設定 ---
 intents = discord.Intents.default()
 intents.message_content = True
-bot = discord.Client(intents=intents)
-tree = app_commands.CommandTree(bot)
+
+class ClassBot(commands.Bot):
+    async def setup_hook(self):
+        extensions = [
+            "cogs.class_cog",
+            "cogs.exam_cog",
+            "cogs.setting_cog",
+        ]
+        for ext in extensions:
+            try:
+                await self.load_extension(ext)
+                print(f"[INFO] {ext} をロードしました")
+            except Exception as e:
+                print(f"[ERROR] {ext} のロードに失敗: {e}")
+        self.tree.add_command(mail_group)
+
+bot = ClassBot(command_prefix="!", intents=intents)
+tree = bot.tree
 
 WEEKDAYS = ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"]
 WEEKDAY_MAP = {w: i for i, w in enumerate(WEEKDAYS)}
@@ -767,7 +783,7 @@ async def do_notification_pass(now: datetime = None):
                     continue
 
                 # user-defined period time overrides
-                period_overrides = data.get("period_time_overrides", {}) or {}
+                period_overrides = data.get("period_overrides", {}) or {}
 
                 # Determine today target weekday (consider per-class overrides for specific dates)
                 target_weekday = today_weekday_actual
@@ -868,44 +884,44 @@ async def do_notification_pass(now: datetime = None):
 
                     diff_minutes = class_minutes - now_minutes
 
-                # 通知設定時間(offsets)に一致するか確認
-                if diff_minutes in offsets:
-                    # 持ち物情報の取得
-                    mats = parse_materials_field(cls.get("materials"))
-                    mats_text = ("\n 持ち物: " + ", ".join(mats)) if mats else ""
+                    # 通知設定時間(offsets)に一致するか確認
+                    if diff_minutes in offsets:
+                        # 持ち物情報の取得
+                        mats = parse_materials_field(cls.get("materials"))
+                        mats_text = ("\n 持ち物: " + ", ".join(mats)) if mats else ""
 
-                    # 休講判定
-                    is_canceled = any(
-                        c.get("date") == today_str and 
-                        normalize_text(c.get("subject", "")) == normalize_text(cls.get("subject", "")) 
-                        for c in (manual_cancellations + cancellations)
-                    )
-                    
-                    # カウントを減らす条件: 最初の通知タイミング(offsets[0]) かつ 休講ではない
-                    if diff_minutes == offsets[0] and not is_canceled:
-                        subj_norm = normalize_text(cls.get("subject", ""))
-                        # 授業データの残り回数を更新
-                        for origin_cls in data["classes"]:
-                            if normalize_text(origin_cls.get("subject", "")) == subj_norm:
-                                if "remaining" in origin_cls:
-                                    origin_cls["remaining"] = max(0, int(origin_cls["remaining"]) - 1)
+                        # 休講判定
+                        is_canceled = any(
+                            c.get("date") == today_str and 
+                            normalize_text(c.get("subject", "")) == normalize_text(cls.get("subject", "")) 
+                            for c in (manual_cancellations + cancellations)
+                        )
                         
-                        # カウントが0になった授業をリストから削除
-                        data["classes"] = [c for c in data["classes"] if c.get("remaining", 1) > 0]
-                        save_user_data(user_id, data)
+                        # カウントを減らす条件: 最初の通知タイミング(offsets[0]) かつ 休講ではない
+                        if diff_minutes == offsets[0] and not is_canceled:
+                            subj_norm = normalize_text(cls.get("subject", ""))
+                            # 授業データの残り回数を更新
+                            for origin_cls in data["classes"]:
+                                if normalize_text(origin_cls.get("subject", "")) == subj_norm:
+                                    if "remaining" in origin_cls:
+                                        origin_cls["remaining"] = max(0, int(origin_cls["remaining"]) - 1)
+                            
+                            # カウントが0になった授業をリストから削除
+                            data["classes"] = [c for c in data["classes"] if c.get("remaining", 1) > 0]
+                            save_user_data(user_id, data)
 
-                    # 通知メッセージの作成
-                    msg = f"教室「{room}」で{diff_minutes}分後に授業「{cls.get('subject','')}」が始まります{mats_text}"
-                    
-                    if any(c.get("date") == today_str and c.get("subject") == cls.get("subject") for c in manual_cancellations):
-                        msg += "\n※この授業は休講です（手動設定）"
-                    elif any(c.get("date") == today_str and c.get("subject") == cls.get("subject") for c in cancellations if c.get("date")):
-                        msg += "\n※この授業は休講です（メール取得）"
+                        # 通知メッセージの作成
+                        msg = f"教室「{room}」で{diff_minutes}分後に授業「{cls.get('subject','')}」が始まります{mats_text}"
+                        
+                        if any(c.get("date") == today_str and c.get("subject") == cls.get("subject") for c in manual_cancellations):
+                            msg += "\n※この授業は休講です（手動設定）"
+                        elif any(c.get("date") == today_str and c.get("subject") == cls.get("subject") for c in cancellations if c.get("date")):
+                            msg += "\n※この授業は休講です（メール取得）"
 
-                    try:
-                        await send_dm(user, msg)
-                    except Exception as e:
-                        print(f"[ERROR] DM送信失敗 (リマインダー) user={user_id}: {e}")
+                        try:
+                            await send_dm(user, msg)
+                        except Exception as e:
+                            print(f"[ERROR] DM送信失敗 (リマインダー) user={user_id}: {e}")
                         
                 # Morning summary: send at exact hour:minute if now matches or if now was passed in as 08:00 via catchup (we check exact minute)
                 if now.hour == 8 and now.minute == 0:
@@ -966,11 +982,6 @@ async def do_notification_pass(now: datetime = None):
                                 print(f" 本日の授業一覧送信: {user.id}")
                             except Exception as e:
                                 print(f"[ERROR] DM送信失敗 (授業一覧) user={user_id}: {e}")
-
-                        # mark as sent
-                        m = load_morning_sent()
-                        m[today_str] = True
-                        save_morning_sent(m)
 
         except Exception as e:
             print(f"[ERROR] do_notification_pass 中の例外: {e}")
@@ -1108,334 +1119,6 @@ async def room_autocomplete(interaction: discord.Interaction, current: str):
             if len(choices) >= 25:
                 break
     return choices
-
-# ---------------------------
-# コマンド群：カテゴリ別（授業 管理 / 休講 / 補講 / 通知 / 試験 / ヘルプ）
-# 全て DM 送信ベースで結果を返します（ユーザーの DM 許可が必要）。
-# ---------------------------
-
-# 授業関連グループ
-class_group = app_commands.Group(name="class", description="授業の登録・一覧・編集を行います")
-
-@class_group.command(name="table", description="授業一覧を時間割表形式で表示します")
-async def class_table(interaction: discord.Interaction):
-    data = load_user_data(interaction.user.id)
-    classes = data.get("classes", [])
-    if not classes:
-        await interaction.response.send_message("登録されている授業はありません。", ephemeral=True)
-        return
-
-    # 表の初期化 (行:時限1-6, 列:月-日)
-    table = {p: ["-" for _ in range(7)] for p in range(1, 7)}
-    for c in classes:
-        try:
-            d = int(c["day"])
-            p = int(c["period"])
-            if p in table:
-                table[p][d] = c["subject"][:8] # 長い名前はカット
-        except: continue
-
-    header = "限| 月 | 火 | 水 | 木 | 金 | 土 | 日 \n"
-    line = "--|---|---|---|---|---|---|---\n"
-    body = ""
-    for p, rows in table.items():
-        body += f"{p} |" + "|".join(rows) + "\n"
-    
-    await interaction.response.send_message(f"```\n{header}{line}{body}```", ephemeral=True)
-
-@class_group.command(name="add", description="授業を登録します（曜日, 時限, 科目, 教室）")
-@app_commands.describe(weekday="曜日を選択", period="時限を選択", subject="科目名", room="教室")
-@app_commands.autocomplete(weekday=weekday_autocomplete, period=period_autocomplete, subject=subject_autocomplete, room=room_autocomplete)
-async def class_add(interaction: discord.Interaction, weekday: str, period: str, subject: str, room: str):
-    await interaction.response.defer(ephemeral=True)
-    user_id = interaction.user.id
-    data = load_user_data(user_id)
-    # remove same-slot existing
-    data["classes"] = [c for c in data.get("classes", []) if not (c.get("day") == WEEKDAY_MAP[weekday] and str(c.get("period")) == str(period))]
-    data.setdefault("classes", []).append({
-        "day": WEEKDAY_MAP[weekday],
-        "period": period,
-        "time": PERIOD_TO_TIME.get(period),
-        "subject": subject,
-        "room": room
-    })
-    save_user_data(user_id, data)
-    await send_dm(interaction.user, f" 授業を登録しました：{weekday} {period}限 — {subject} ({room})")
-    await interaction.followup.send("授業をDMで登録しました。", ephemeral=True)
-
-@class_group.command(name="remove", description="授業を削除します（曜日＋時限で指定）")
-@app_commands.describe(weekday="曜日を選択", period="時限を選択")
-@app_commands.autocomplete(weekday=weekday_autocomplete, period=period_autocomplete)
-async def class_remove(interaction: discord.Interaction, weekday: str, period: str):
-    await interaction.response.defer(ephemeral=True)
-    user_id = interaction.user.id
-    data = load_user_data(user_id)
-    before = len(data.get("classes", []))
-    data["classes"] = [c for c in data.get("classes", []) if not (c.get("day") == WEEKDAY_MAP[weekday] and str(c.get("period")) == str(period))]
-    save_user_data(user_id, data)
-    removed = before - len(data.get("classes", []))
-    await send_dm(interaction.user, f" {removed}件を削除しました：{weekday} {period}限")
-    await interaction.followup.send("削除結果をDMで送信しました。", ephemeral=True)
-
-@class_group.command(name="list", description="登録授業（曜日・時限順）をDMで送ります")
-async def class_list(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
-    user_id = interaction.user.id
-    data = load_user_data(user_id)
-    classes = data.get("classes", []) or []
-    if not classes:
-        await send_dm(interaction.user, "登録授業はありません。")
-        await interaction.followup.send("DMを送信しました（授業なし）。", ephemeral=True)
-        return
-    rows = []
-    for c in classes:
-        rows.append({
-            "曜日": WEEKDAYS[c.get("day")],
-            "時限": c.get("period"),
-            "授業名": c.get("subject"),
-            "教室": c.get("room")
-        })
-
-    df = pd.DataFrame(rows)
-
-    df["時限"] = pd.to_numeric(df["時限"], errors="coerce")
-    df.sort_values(["曜日", "時限"], inplace=True)
-
-    plt.figure(figsize=(8, max(2, len(df) * 0.4)))
-    plt.axis("off")
-
-    table = plt.table(
-        cellText=df.values,
-        colLabels=df.columns,
-        loc="center"
-    )
-
-    table.auto_set_font_size(False)
-    table.set_fontsize(10)
-    table.scale(1, 1.4)
-
-    img_path = f"class_list_{interaction.user.id}.png"
-    plt.savefig(img_path, bbox_inches="tight")
-    plt.close()
-
-    await interaction.user.send(
-        content="登録授業一覧です。",
-        file=discord.File(img_path)
-    )
-
-    os.remove(img_path)
-    await interaction.followup.send("登録授業一覧をDMで送信しました。", ephemeral=True)
-
-@class_group.command(name="setroom", description="特定日の特定授業の教室を変更します")
-@app_commands.describe(date="YYYY-MM-DD", period="変更する時限", new_room="新しい教室名")
-@app_commands.autocomplete(period=period_autocomplete, new_room=room_autocomplete)
-async def class_setroom(interaction: discord.Interaction, date: str, period: str, new_room: str):
-    await interaction.response.defer(ephemeral=True)
-    try:
-        datetime.strptime(date, "%Y-%m-%d")
-    except Exception:
-        await interaction.followup.send("日付形式が無効です。YYYY-MM-DD で指定してください。", ephemeral=True)
-        return
-    user_id = interaction.user.id
-    data = load_user_data(user_id)
-    found = False
-    for cls in data.get("classes", []):
-        if str(cls.get("period")) == str(period):
-            cls.setdefault("room_overrides", {})[date] = new_room
-            found = True
-    if not found:
-        await interaction.followup.send("指定の授業が見つかりませんでした。", ephemeral=True)
-        return
-    save_user_data(user_id, data)
-    await send_dm(interaction.user, f" {date} の {period}限 の教室を {new_room} に変更しました。")
-    await interaction.followup.send("教室変更をDMに送信しました。", ephemeral=True)
-
-@class_group.command(name="setday", description="自分の特定日の曜日を変更（全授業に適用）")
-@app_commands.describe(date="YYYY-MM-DD", new_weekday="変更後の曜日")
-@app_commands.autocomplete(new_weekday=weekday_autocomplete)
-async def class_setday(interaction: discord.Interaction, date: str, new_weekday: str):
-    await interaction.response.defer(ephemeral=True)
-    if new_weekday not in WEEKDAY_MAP:
-        await interaction.followup.send("無効な曜日です。", ephemeral=True)
-        return
-    try:
-        datetime.strptime(date, "%Y-%m-%d")
-    except:
-        await interaction.followup.send("日付形式が無効です。YYYY-MM-DD で指定してください。", ephemeral=True)
-        return
-    user_id = interaction.user.id
-    data = load_user_data(user_id)
-    for cls in data.get("classes", []):
-        cls.setdefault("overrides", {})[date] = WEEKDAY_MAP[new_weekday]
-    save_user_data(user_id, data)
-    await send_dm(interaction.user, f" {date} の曜日を {new_weekday} に変更しました（登録授業すべてに適用）。")
-    await interaction.followup.send("曜日変更をDMで送信しました。", ephemeral=True)
-
-# 休講関連グループ
-cancel_group = app_commands.Group(name="cancel", description="休講の手動登録 / 表示 / 削除")
-
-@cancel_group.command(name="add", description="手動で休講情報を追加します")
-@app_commands.describe(date="休講日 (YYYY-MM-DD)", subject="科目名（候補あり）")
-@app_commands.autocomplete(subject=subject_autocomplete)
-async def cancel_add(interaction: discord.Interaction, date: str, subject: str):
-    await interaction.response.defer(ephemeral=True)
-    try:
-        datetime.strptime(date, "%Y-%m-%d")
-    except:
-        await interaction.followup.send("日付形式が無効です。", ephemeral=True)
-        return
-    user_id = interaction.user.id
-    data = load_user_data(user_id)
-    data.setdefault("manual_cancellations", [])
-    for c in data["manual_cancellations"]:
-        if c.get("date") == date and normalize_text(c.get("subject", "")) == normalize_text(subject):
-            await interaction.followup.send(" 既に同一の休講が登録されています。", ephemeral=True)
-            return
-    data["manual_cancellations"].append({"date": date, "subject": subject})
-    save_user_data(user_id, data)
-    await send_dm(interaction.user, f" 手動休講を追加しました: {date} {subject}")
-    await interaction.followup.send("休講登録をDMで送信しました。", ephemeral=True)
-
-@cancel_group.command(name="remove", description="手動で登録した休講を削除します")
-@app_commands.describe(date="休講日 (YYYY-MM-DD)", subject="科目名（候補あり）")
-@app_commands.autocomplete(subject=subject_autocomplete)
-async def cancel_remove(interaction: discord.Interaction, date: str, subject: str):
-    await interaction.response.defer(ephemeral=True)
-    user_id = interaction.user.id
-    data = load_user_data(user_id)
-    if "manual_cancellations" not in data or not data["manual_cancellations"]:
-        await interaction.followup.send("手動休講は登録されていません。", ephemeral=True)
-        return
-    new_list = [c for c in data["manual_cancellations"] if not (c.get("date") == date and normalize_text(c.get("subject","")) == normalize_text(subject))]
-    if len(new_list) == len(data["manual_cancellations"]):
-        await interaction.followup.send("該当の休講が見つかりませんでした。", ephemeral=True)
-        return
-    data["manual_cancellations"] = new_list
-    save_user_data(user_id, data)
-    await send_dm(interaction.user, f" 手動休講を削除しました: {date} {subject}")
-    await interaction.followup.send("削除結果をDMで送信しました。", ephemeral=True)
-
-@cancel_group.command(name="list", description="手動で登録した休講一覧を表示します（DM）")
-async def cancel_list(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
-    user_id = interaction.user.id
-    data = load_user_data(user_id)
-    manual = data.get("manual_cancellations", []) or []
-    if not manual:
-        await send_dm(interaction.user, "手動休講は登録されていません。")
-        await interaction.followup.send("DMを送信しました（休講なし）。", ephemeral=True)
-        return
-    lines = ["手動で登録した休講一覧:"]
-    for c in sorted(manual, key=lambda x: x.get("date")):
-        lines.append(f"{c.get('date')} : {c.get('subject')}")
-    await send_long_dm(interaction.user, "\n".join(lines))
-    await interaction.followup.send("休講一覧をDMで送信しました。", ephemeral=True)
-
-# 補講（補講追加・一覧・削除）
-makeup_group = app_commands.Group(name="makeup", description="補講（補講の追加/一覧/削除）")
-
-@makeup_group.command(name="add", description="補講を追加します（候補付き）")
-@app_commands.describe(date="補講日 (YYYY-MM-DD)", time="開始時刻または時限（HH:MM or 2）", subject="科目名", room="教室")
-@app_commands.autocomplete(time=makeup_time_autocomplete, subject=subject_autocomplete, room=room_autocomplete)
-async def makeup_add(interaction: discord.Interaction, date: str, time: str, subject: str, room: str):
-    await interaction.response.defer(ephemeral=True)
-    try:
-        datetime.strptime(date, "%Y-%m-%d")
-    except:
-        await interaction.followup.send("日付形式が無効です。YYYY-MM-DD で指定してください。", ephemeral=True)
-        return
-    user_id = interaction.user.id
-    data = load_user_data(user_id)
-    data.setdefault("makeup_classes", [])
-    for m in data["makeup_classes"]:
-        if m.get("date") == date and m.get("time") == time:
-            await interaction.followup.send(" 同じ日時ですでに補講が登録されています。", ephemeral=True)
-            return
-    data["makeup_classes"].append({"date": date, "time": time, "subject": subject, "room": room})
-    save_user_data(user_id, data)
-    await send_dm(interaction.user, f" 補講を登録しました: {date} {time} {subject} ({room})")
-    await interaction.followup.send("補講をDMで登録しました。", ephemeral=True)
-
-@makeup_group.command(name="remove", description="補講を削除します（日時指定）")
-@app_commands.describe(date="補講日 (YYYY-MM-DD)", time="開始時刻または時限（HH:MM or 2）")
-@app_commands.autocomplete(time=makeup_time_autocomplete)
-async def makeup_remove(interaction: discord.Interaction, date: str, time: str):
-    await interaction.response.defer(ephemeral=True)
-    user_id = interaction.user.id
-    data = load_user_data(user_id)
-    before = len(data.get("makeup_classes", []))
-    data["makeup_classes"] = [m for m in data.get("makeup_classes", []) if not (m.get("date") == date and str(m.get("time")) == str(time))]
-    save_user_data(user_id, data)
-    removed = before - len(data.get("makeup_classes", []))
-    await send_dm(interaction.user, f" 補講を{removed}件削除しました: {date} {time}")
-    await interaction.followup.send("削除結果をDMで送信しました。", ephemeral=True)
-
-@makeup_group.command(name="list", description="補講一覧をDMで表示します")
-async def makeup_list(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
-    user_id = interaction.user.id
-    data = load_user_data(user_id)
-    mak = data.get("makeup_classes", []) or []
-    if not mak:
-        await send_dm(interaction.user, "補講は登録されていません。")
-        await interaction.followup.send("DMを送信しました（補講なし）。", ephemeral=True)
-        return
-    lines = ["補講一覧:"]
-    for m in sorted(mak, key=lambda x: (x.get("date"), x.get("time"))):
-        lines.append(f"{m.get('date')} {m.get('time')} : {m.get('subject')} ({m.get('room')})")
-    await send_long_dm(interaction.user, "\n".join(lines))
-    await interaction.followup.send("補講一覧をDMで送信しました。", ephemeral=True)
-
-# 通知設定グループ
-notify_group = app_commands.Group(name="notify", description="通知時刻や朝一覧の設定")
-
-@notify_group.command(name="set_period", description="時限ごとの開始時間を設定します")
-async def set_period_time(interaction: discord.Interaction, period: str, time: str):
-    if not re.match(r"^\d{2}:\d{2}$", time):
-        await interaction.response.send_message("時間は HH:MM 形式で入力してください。", ephemeral=True)
-        return
-    data = load_user_data(interaction.user.id)
-    if "period_time_overrides" not in data:
-        data["period_time_overrides"] = {}
-    data["period_time_overrides"][period] = time
-    save_user_data(interaction.user.id, data)
-    await interaction.response.send_message(f"{period}限の開始時間を {time} に設定しました。", ephemeral=True)
-
-@notify_group.command(name="set", description="通知時刻（分前）を設定します（type: normal|exam）")
-@app_commands.describe(type="normal または exam", first="1回目通知（分前）", second="2回目通知（分前）")
-async def notify_set(interaction: discord.Interaction, type: str, first: int, second: int):
-    await interaction.response.defer(ephemeral=True)
-    t = (type or "").lower()
-    if t not in ("normal", "exam"):
-        await interaction.followup.send("type は 'normal' または 'exam' を指定してください。", ephemeral=True)
-        return
-    if first <= 0 or second <= 0:
-        await interaction.followup.send("分は正の整数で指定してください。", ephemeral=True)
-        return
-    if first < second:
-        first, second = second, first
-    user_id = interaction.user.id
-    data = load_user_data(user_id)
-    data.setdefault("notify_settings", {})
-    data["notify_settings"].setdefault(t, {})
-    data["notify_settings"][t]["first"] = int(first)
-    data["notify_settings"][t]["second"] = int(second)
-    save_user_data(user_id, data)
-    await send_dm(interaction.user, f" 通知設定を保存しました（{t}）：{first}分 / {second}分 前")
-    await interaction.followup.send("通知設定をDMで保存しました。", ephemeral=True)
-
-@notify_group.command(name="show", description="現在の通知設定を表示します（DM）")
-async def notify_show(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
-    user_id = interaction.user.id
-    data = load_user_data(user_id)
-    user_notify = data.get("notify_settings", {}) or {}
-    normal_cfg = user_notify.get("normal") or DEFAULT_NOTIFY["normal"]
-    exam_cfg = user_notify.get("exam") or DEFAULT_NOTIFY["exam"]
-    msg = f"通知設定:\n- 通常: {normal_cfg.get('first')}分 / {normal_cfg.get('second')}分 前\n- 試験: {exam_cfg.get('first')}分 / {exam_cfg.get('second')}分 前\n"
-    await send_dm(interaction.user, msg)
-    await interaction.followup.send("通知設定をDMで送信しました。", ephemeral=True)
-
 # Gmail / 休講取得関連（認証含む）
 mail_group = app_commands.Group(name="mail", description="Gmail 認証および休講取得用コマンド")
 
@@ -1537,130 +1220,6 @@ async def mail_fetch(interaction: discord.Interaction):
         traceback.print_exc()
         await interaction.followup.send(f"休講情報の取得に失敗しました: {e}", ephemeral=True)
 
-# 試験時間割グループ（既存と合わせる）
-exam_group = app_commands.Group(name="exam", description="定期試験用の特別時間割を管理します（create/list/show/addclass 等）")
-
-@exam_group.command(name="create", description="試験用時間割を作成します（名前・期間）")
-@app_commands.describe(name="時間割名", start="開始日 (YYYY-MM-DD)", end="終了日 (YYYY-MM-DD)")
-async def exam_create(interaction: discord.Interaction, name: str, start: str, end: str):
-    await interaction.response.defer(ephemeral=True)
-    try:
-        sd = datetime.strptime(start, "%Y-%m-%d").date()
-        ed = datetime.strptime(end, "%Y-%m-%d").date()
-    except Exception:
-        await interaction.followup.send("日付形式が無効です。YYYY-MM-DD で指定してください。", ephemeral=True)
-        return
-    if sd > ed:
-        await interaction.followup.send("開始日は終了日より前にしてください。", ephemeral=True)
-        return
-    user_id = interaction.user.id
-    data = load_user_data(user_id)
-    data.setdefault("exam_schedules", [])
-    for s in data["exam_schedules"]:
-        if s.get("name") == name:
-            await interaction.followup.send("同名の試験時間割が既に存在します。", ephemeral=True)
-            return
-    data["exam_schedules"].append({"name": name, "start": start, "end": end, "classes": []})
-    save_user_data(user_id, data)
-    await send_dm(interaction.user, f" 試験時間割「{name}」を作成しました: {start} ～ {end}")
-    await interaction.followup.send("試験時間割をDMで作成しました。", ephemeral=True)
-
-@exam_group.command(name="delete", description="指定した試験時間割を削除します")
-@app_commands.describe(name="削除する時間割名")
-@app_commands.autocomplete(name=exam_name_autocomplete)
-async def exam_delete(interaction: discord.Interaction, name: str):
-    await interaction.response.defer(ephemeral=True)
-    user_id = interaction.user.id
-    data = load_user_data(user_id)
-    before = len(data.get("exam_schedules", []) or [])
-    data["exam_schedules"] = [s for s in data.get("exam_schedules", []) if s.get("name") != name]
-    save_user_data(user_id, data)
-    removed = before - len(data.get("exam_schedules", []) or [])
-    await send_dm(interaction.user, f"🗑️ 試験時間割「{name}」を削除しました（{removed}件）。")
-    await interaction.followup.send("削除結果をDMで送信しました。", ephemeral=True)
-
-@exam_group.command(name="list", description="登録済み試験時間割の一覧をDMで表示します")
-async def exam_list(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
-    user_id = interaction.user.id
-    data = load_user_data(user_id)
-    schedules = data.get("exam_schedules", []) or []
-    if not schedules:
-        await send_dm(interaction.user, "試験時間割は登録されていません。")
-        await interaction.followup.send("DMを送信しました（試験時間割なし）。", ephemeral=True)
-        return
-    lines = [" 登録済み試験時間割:"]
-    for s in sorted(schedules, key=lambda x: x.get("start", "")):
-        lines.append(f"- {s.get('name')} : {s.get('start')} ～ {s.get('end')} ({len(s.get('classes', []))}件)")
-    await send_long_dm(interaction.user, "\n".join(lines))
-    await interaction.followup.send("試験時間割一覧をDMで送信しました。", ephemeral=True)
-
-@exam_group.command(name="show", description="指定した試験時間割の中身を表示します")
-@app_commands.describe(name="表示する時間割名")
-@app_commands.autocomplete(name=exam_name_autocomplete)
-async def exam_show(interaction: discord.Interaction, name: str):
-    await interaction.response.defer(ephemeral=True)
-    user_id = interaction.user.id
-    data = load_user_data(user_id)
-    schedules = data.get("exam_schedules", []) or []
-    target = next((s for s in schedules if s.get("name") == name), None)
-    if not target:
-        await interaction.followup.send("該当の時間割が見つかりませんでした。", ephemeral=True)
-        return
-    classes = target.get("classes", []) or []
-    if not classes:
-        await send_dm(interaction.user, f"試験時間割「{name}」には授業が登録されていません。")
-        await interaction.followup.send("DMを送信しました（授業なし）。", ephemeral=True)
-        return
-    lines = [f" 試験時間割「{name}」の授業:"]
-    classes_sorted = sorted(classes, key=lambda x: (x.get("day", 0), int(x.get("period", 0) if str(x.get("period")).isdigit() else 999)))
-    for c in classes_sorted:
-        wd = WEEKDAYS[int(c.get("day"))] if c.get("day") is not None else "不明曜日"
-        pd = c.get("period") or c.get("time") or "?"
-        lines.append(f"{wd} {pd}限 {c.get('subject','')} ({c.get('room','未設定')})")
-    await send_long_dm(interaction.user, "\n".join(lines))
-    await interaction.followup.send("試験時間割をDMで送信しました。", ephemeral=True)
-
-@exam_group.command(name="addclass", description="試験時間割に授業を追加します")
-@app_commands.describe(name="時間割名", weekday="曜日", period="時限", subject="科目名", room="教室", time="（任意）開始時刻 HH:MM")
-@app_commands.autocomplete(name=exam_name_autocomplete, weekday=weekday_autocomplete, period=period_autocomplete, subject=subject_autocomplete, room=room_autocomplete)
-async def exam_addclass(interaction: discord.Interaction, name: str, weekday: str, period: str, subject: str, room: str, time: str = None):
-    await interaction.response.defer(ephemeral=True)
-    user_id = interaction.user.id
-    data = load_user_data(user_id)
-    schedules = data.get("exam_schedules", []) or []
-    target = next((s for s in schedules if s.get("name") == name), None)
-    if not target:
-        await interaction.followup.send("該当の時間割が見つかりませんでした。", ephemeral=True)
-        return
-    day_idx = WEEKDAY_MAP.get(weekday)
-    time_val = time or PERIOD_TO_TIME.get(period)
-    entry = {"day": day_idx, "period": period, "time": time_val, "subject": subject, "room": room}
-    target.setdefault("classes", []).append(entry)
-    save_user_data(user_id, data)
-    await send_dm(interaction.user, f" 試験時間割「{name}」に授業を追加しました: {weekday} {period}限 {subject} ({room})")
-    await interaction.followup.send("試験時間割に授業を追加しました（DM送付）。", ephemeral=True)
-
-@exam_group.command(name="removeclass", description="試験時間割から授業を削除します（曜日＋時限で指定）")
-@app_commands.describe(name="時間割名", weekday="曜日", period="時限")
-@app_commands.autocomplete(name=exam_name_autocomplete, weekday=weekday_autocomplete, period=period_autocomplete)
-async def exam_removeclass(interaction: discord.Interaction, name: str, weekday: str, period: str):
-    await interaction.response.defer(ephemeral=True)
-    user_id = interaction.user.id
-    data = load_user_data(user_id)
-    schedules = data.get("exam_schedules", []) or []
-    target = next((s for s in schedules if s.get("name") == name), None)
-    if not target:
-        await interaction.followup.send("該当の時間割が見つかりませんでした。", ephemeral=True)
-        return
-    day_idx = WEEKDAY_MAP.get(weekday)
-    before = len(target.get("classes", []))
-    target["classes"] = [c for c in target.get("classes", []) if not (c.get("day") == day_idx and str(c.get("period")) == str(period))]
-    save_user_data(user_id, data)
-    deleted = before - len(target.get("classes", []))
-    await send_dm(interaction.user, f" 試験時間割「{name}」から {weekday} {period}限 を削除しました（{deleted}件）。")
-    await interaction.followup.send("削除結果をDMで送信しました。", ephemeral=True)
-
 # ヘルプ / コマンド一覧（カテゴリ別・DM送信）
 @tree.command(name="help", description="使い方ヘルプをDMで受け取ります（コマンド一覧をカテゴリ別に表示）")
 async def help_command(interaction: discord.Interaction):
@@ -1749,63 +1308,6 @@ async def help_command(interaction: discord.Interaction):
             await interaction.followup.send(" ヘルプ送信中にエラーが発生しました。管理者に問い合わせてください。", ephemeral=True)
         except Exception:
             pass
-
-# 2: 各時限の開始時間をユーザーごとに設定
-    @notify_group.command(name="set_period_time", description="各時限の開始時間を設定します")
-    async def set_period_time(interaction: discord.Interaction, period: str, start_time: str):
-        if not re.match(r"^\d{2}:\d{2}$", start_time):
-            await interaction.response.send_message("時間は HH:MM 形式で入力してください。", ephemeral=True)
-            return
-        data = load_user_data(interaction.user.id)
-        if "period_overrides" not in data: data["period_overrides"] = {}
-        data["period_overrides"][period] = start_time
-        save_user_data(interaction.user.id, data)
-        await interaction.response.send_message(f"{period}限の開始時間を {start_time} に設定しました。", ephemeral=True)
-
-    # 3: 授業一覧を曜日（列）× 時限（行）の表形式で出力
-    @class_group.command(name="table", description="時間割を表形式で表示します")
-    async def class_table(interaction: discord.Interaction):
-        data = load_user_data(interaction.user.id)
-        classes = data.get("classes", [])
-        if not classes:
-            await interaction.response.send_message("登録されている授業はありません。", ephemeral=True)
-            return
-
-        # 7日分×6時限の表を作成
-        table_dict = {str(i): ["  -  " for _ in range(7)] for i in range(1, 7)}
-        for c in classes:
-            try:
-                d_idx = int(c["day"])
-                p_key = str(c["period"])
-                if p_key in table_dict:
-                    subj = c["subject"][:5]
-                    table_dict[p_key][d_idx] = subj.center(6)
-            except: continue
-
-        res = "```\n限 | 月 | 火 | 水 | 木 | 金 | 土 | 日 \n---|---|---|---|---|---|---|---\n"
-        for p, row in table_dict.items():
-            res += f" {p} |" + "|".join(row) + "\n"
-        res += "```"
-        await interaction.response.send_message(res, ephemeral=True)
-
-
-# 登録：グループをツリーに追加（既に存在する場合は上書きされる）
-tree.add_command(class_group)
-tree.add_command(makeup_group)
-tree.add_command(cancel_group)
-tree.add_command(notify_group)
-tree.add_command(mail_group)
-tree.add_command(exam_group)
-
-# ----------------------------
-# これでコマンド群の差し替えは完了です。
-# - 既存ファイルの「スラッシュコマンド群（元コードと同等 + 通知設定コマンド）」以降のコマンド定義部分を
-#   本ブロックに置換してください（tree.add_command の重複登録を避けるため、元の同名定義は削除してください）。
-# - ここで使っているユーティリティ（load_user_data, send_dm, weekday_autocomplete, period_autocomplete 等）は
-#   ファイル上部に既にあるものを前提としています。
-# ----------------------------
-
-
 
 @bot.event
 async def on_ready():

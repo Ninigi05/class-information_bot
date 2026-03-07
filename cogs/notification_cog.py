@@ -1,11 +1,10 @@
 import os
 import json
 import re
-import asyncio
 import traceback
 import discord
 from discord import app_commands
-from discord.ext import commands, tasks
+from discord.ext import commands
 from datetime import datetime
 from utils import load_user_data, save_user_data, send_dm, send_long_dm
 
@@ -26,35 +25,11 @@ DEFAULT_NOTIFY = {
     "exam": {"first": 30, "second": 25}
 }
 
-BASE_DIR = os.getcwd()
-MORNING_MARK_FILE = os.path.join(BASE_DIR, "morning_sent.json")
-
-
-def _load_morning_sent():
-    try:
-        with open(MORNING_MARK_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-
-def _save_morning_sent(d):
-    try:
-        with open(MORNING_MARK_FILE, "w", encoding="utf-8") as f:
-            json.dump(d, f, ensure_ascii=False)
-    except Exception as e:
-        print(f"[WARN] morning_sent 保存失敗: {e}")
 
 
 class NotificationCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self._last_notif_minute = None
-        self._notif_lock = asyncio.Lock()
-        self.notification_loop.start()
-
-    def cog_unload(self):
-        self.notification_loop.cancel()
 
     # ------------------- autocomplete helpers -------------------
 
@@ -266,193 +241,6 @@ class NotificationCog(commands.Cog):
             lines.append(f"{m.get('date')} {m.get('time')} : {m.get('subject')} ({m.get('room')})")
         await send_long_dm(interaction.user, "\n".join(lines))
         await interaction.followup.send("補講一覧をDMで送信しました。", ephemeral=True)
-
-    # ------------------- background notification task -------------------
-
-    @tasks.loop(minutes=1)
-    async def notification_loop(self):
-        await self._do_notification_pass()
-
-    @notification_loop.before_loop
-    async def before_notification_loop(self):
-        await self.bot.wait_until_ready()
-        # catch-up: if between 08:00 and 12:00, run a fake 08:00 pass so any user
-        # who did not yet receive the morning summary will receive it now.
-        # Per-user idempotency is handled inside _do_notification_pass via the morning marker.
-        now = datetime.now()
-        if 8 <= now.hour < 12:
-            try:
-                await self._do_notification_pass(
-                    now=now.replace(hour=8, minute=0, second=0, microsecond=0)
-                )
-            except Exception as e:
-                print(f"[WARN] 起動時補完で例外: {e}")
-
-    async def _do_notification_pass(self, now: datetime = None):
-        if now is None:
-            now = datetime.now()
-
-        async with self._notif_lock:
-            minute_key = now.strftime("%Y-%m-%d %H:%M")
-            if self._last_notif_minute == minute_key:
-                return
-            self._last_notif_minute = minute_key
-
-            now_minutes = now.hour * 60 + now.minute
-            today_str = now.strftime("%Y-%m-%d")
-            today_weekday = now.weekday()
-
-            try:
-                for filename in os.listdir(BASE_DIR):
-                    if not filename.startswith("user_") or not filename.endswith(".json"):
-                        continue
-                    try:
-                        user_id = int(filename.split("_")[1].split(".")[0])
-                    except Exception:
-                        continue
-
-                    try:
-                        user = await self.bot.fetch_user(user_id)
-                    except discord.NotFound:
-                        continue
-                    except Exception as e:
-                        print(f"[WARN] ユーザー取得失敗: {user_id} ({e})")
-                        continue
-
-                    data = load_user_data(user_id)
-                    if not data:
-                        continue
-
-                    classes = data.get("classes", []) or []
-                    if not classes and not data.get("makeup_classes"):
-                        continue
-
-                    # determine effective weekday (apply per-class date override if present)
-                    target_weekday = today_weekday
-                    for cls in classes:
-                        if "overrides" in cls and today_str in cls["overrides"]:
-                            target_weekday = cls["overrides"][today_str]
-                            break
-
-                    today_classes = [c for c in classes if c.get("day") == target_weekday]
-                    makeups_today = [
-                        m for m in data.get("makeup_classes", []) or []
-                        if m.get("date") == today_str
-                    ]
-
-                    # combine regular and makeup classes
-                    final_classes = list(today_classes)
-                    for m in makeups_today:
-                        final_classes.append({
-                            "period": m.get("time", "?"),
-                            "time": m.get("time"),
-                            "subject": m.get("subject"),
-                            "room": m.get("room", "未設定"),
-                        })
-
-                    # resolve notification offsets
-                    user_notify = data.get("notify_settings", {}) or {}
-                    normal_cfg = user_notify.get("normal") or DEFAULT_NOTIFY["normal"]
-                    try:
-                        first_off = int(normal_cfg.get("first"))
-                        second_off = int(normal_cfg.get("second"))
-                    except Exception:
-                        first_off = DEFAULT_NOTIFY["normal"]["first"]
-                        second_off = DEFAULT_NOTIFY["normal"]["second"]
-                    if first_off < second_off:
-                        first_off, second_off = second_off, first_off
-                    offsets = (first_off, second_off)
-
-                    manual_cancellations = data.get("manual_cancellations", []) or []
-                    period_overrides = data.get("period_overrides", {}) or {}
-
-                    # per-class reminder notifications
-                    for cls in final_classes:
-                        room = cls.get("room", "未設定")
-                        if "room_overrides" in cls and today_str in cls["room_overrides"]:
-                            room = cls["room_overrides"][today_str]
-
-                        p_key = str(cls.get("period"))
-                        time_str = (
-                            period_overrides.get(p_key)
-                            or cls.get("time")
-                            or PERIOD_TO_TIME.get(p_key)
-                        )
-                        if not time_str:
-                            continue
-                        try:
-                            h, m = map(int, time_str.split(":"))
-                            class_minutes = h * 60 + m
-                        except Exception:
-                            continue
-
-                        diff_minutes = class_minutes - now_minutes
-                        if diff_minutes not in offsets:
-                            continue
-
-                        is_canceled = any(
-                            c.get("date") == today_str and c.get("subject") == cls.get("subject")
-                            for c in manual_cancellations
-                        )
-
-                        msg = f"教室「{room}」で{diff_minutes}分後に授業「{cls.get('subject', '')}」が始まります"
-                        if is_canceled:
-                            msg += "\n※この授業は休講です（手動設定）"
-
-                        try:
-                            await send_dm(user, msg)
-                        except Exception as e:
-                            print(f"[ERROR] DM送信失敗 (リマインダー) user={user_id}: {e}")
-
-                    # morning summary at 08:00
-                    if now.hour == 8 and now.minute == 0:
-                        morning_marker = _load_morning_sent()
-                        user_marks = morning_marker.get(str(user_id), {})
-                        if user_marks.get(today_str):
-                            continue
-
-                        morning_marker.setdefault(str(user_id), {})[today_str] = True
-                        _save_morning_sent(morning_marker)
-
-                        if final_classes:
-                            def sort_key(x):
-                                p = x.get("period")
-                                try:
-                                    return int(p)
-                                except Exception:
-                                    ts = (
-                                        period_overrides.get(str(p))
-                                        or x.get("time")
-                                        or PERIOD_TO_TIME.get(str(p))
-                                    )
-                                    try:
-                                        h2, m2 = map(int, ts.split(":"))
-                                        return h2 * 60 + m2
-                                    except Exception:
-                                        return 99999
-
-                            today_sorted = sorted(final_classes, key=sort_key)
-                            msg = f"本日の授業一覧（{WEEKDAYS[target_weekday]}）:\n"
-                            for cls in today_sorted:
-                                room = cls.get("room", "未設定")
-                                if "room_overrides" in cls and today_str in cls["room_overrides"]:
-                                    room = cls["room_overrides"][today_str]
-                                manual_hit = any(
-                                    c.get("date") == today_str and c.get("subject") == cls.get("subject")
-                                    for c in manual_cancellations
-                                )
-                                note = " ※休講（手動設定）" if manual_hit else ""
-                                period_display = cls.get("period", cls.get("time", "?"))
-                                msg += f"{period_display}限 {cls.get('subject')} ({room}){note}\n"
-
-                            try:
-                                await send_long_dm(user, msg)
-                            except Exception as e:
-                                print(f"[ERROR] DM送信失敗 (授業一覧) user={user_id}: {e}")
-
-            except Exception as e:
-                print(f"[ERROR] _do_notification_pass 中の例外: {e}")
-                traceback.print_exc()
 
 
 async def setup(bot: commands.Bot):
