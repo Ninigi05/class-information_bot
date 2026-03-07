@@ -46,6 +46,7 @@ class ClassBot(commands.Bot):
             "cogs.class_cog",
             "cogs.exam_cog",
             "cogs.setting_cog",
+            "cogs.notification_cog",
         ]
         for ext in extensions:
             try:
@@ -1240,19 +1241,22 @@ async def help_command(interaction: discord.Interaction):
 
     # --- クラス管理 ---
     help_lines.append("===  クラス管理（授業の登録 / 表示 / 編集） ===")
-    help_lines.append("• /addclass weekday period subject room\n  → 授業を登録します。\n  例: /addclass 曜日:水曜日 period:2 subject:基礎物理 room:17-404\n  （weekday, period に対しては候補表示（オートコンプリート）があります）")
-    help_lines.append("• /removeclass weekday period\n  → 登録済み授業を削除します。例: /removeclass 火曜日 3\n")
-    help_lines.append("• /listclasses\n  → 自分の登録授業一覧をDMで受け取ります（曜日・時限でソート）")
-    help_lines.append("• /setclassroom date period new_room\n  → 指定日の教室を変更（例: /setclassroom 2025-09-22 2 38-S418）")
-    help_lines.append("• /setmy_dayoverride date new_weekday\n  → 自分の特定日の曜日を変更（代替時間割対応）\n")
+    help_lines.append("• /class add weekday period subject room\n  → 授業を登録します。\n  例: /class add 曜日:水曜日 period:2 subject:基礎物理 room:17-404\n  （weekday, period に対しては候補表示（オートコンプリート）があります）")
+    help_lines.append("• /class remove weekday period\n  → 登録済み授業を削除します。例: /class remove 火曜日 3\n")
+    help_lines.append("• /class list\n  → 自分の登録授業一覧をDMで受け取ります（曜日・時限でソート）")
+    help_lines.append("• /class table\n  → 授業一覧を時間割表形式で表示します")
+    help_lines.append("• /class setroom date period new_room\n  → 指定日の教室を変更（例: /class setroom 2025-09-22 2 38-S418）")
+    help_lines.append("• /class setday date new_weekday\n  → 自分の特定日の曜日を変更（代替時間割対応）\n")
 
     # --- 補講 / 休講 ---
     help_lines.append("===  補講・休講管理 ===")
-    help_lines.append("• /addmakeup date time subject room\n  → 補講を追加（例: /addmakeup 2025-10-08 15:00 基礎物理 31-506）")
-    help_lines.append("• /addcancellation date subject\n  → 手動で休講を追加（例: /addcancellation 2025-10-08 総合的な学習の時間）")
-    help_lines.append("• /removecancellation date subject\n  → 手動休講を削除")
-    help_lines.append("• /listcancellations\n  → 手動で追加した休講一覧を表示")
-    help_lines.append("• /listgmailcancellations\n  → Gmail から取得した最新の休講情報を確認して保存します（Gmail 認証要）\n")
+    help_lines.append("• /makeup add date time subject room\n  → 補講を追加（例: /makeup add 2025-10-08 15:00 基礎物理 31-506）")
+    help_lines.append("• /makeup remove date time\n  → 補講を削除")
+    help_lines.append("• /makeup list\n  → 補講一覧を表示")
+    help_lines.append("• /cancel add date subject\n  → 手動で休講を追加（例: /cancel add 2025-10-08 総合的な学習の時間）")
+    help_lines.append("• /cancel remove date subject\n  → 手動休講を削除")
+    help_lines.append("• /cancel list\n  → 手動で追加した休講一覧を表示")
+    help_lines.append("• /mail fetch\n  → Gmail から取得した最新の休講情報を確認して保存します（Gmail 認証要）\n")
 
     # --- 試験時間割 ---
     help_lines.append("===  試験時間割（exam グループ） ===")
@@ -1264,17 +1268,19 @@ async def help_command(interaction: discord.Interaction):
 
     # --- Gmail / 認証 ---
     help_lines.append("===  Gmail 認証 / 連携 ===")
-    help_lines.append("• /authmail\n  → Gmail 認証を開始します。認証URLはDMで送信されます。")
-    help_lines.append("• /setcode code\n  → /authmail で取得した認証コードを入力して完了します（必須）\n")
+    help_lines.append("• /mail auth\n  → Gmail 認証を開始します。認証URLはDMで送信されます。")
+    help_lines.append("• /mail setcode code\n  → /mail auth で取得した認証コードを入力して完了します（必須）\n")
 
     # --- 通知設定 / 今日の授業 ---
     help_lines.append("===  通知・今日の授業 ===")
-    help_lines.append("• /set_notify type first second\n  → 通知時刻を設定（type は normal または exam）。例: /set_notify normal 30 15")
-    help_lines.append("• /todayclasses\n  → 今日の授業一覧をDMで送信（オーバーライド・休講参照・補講反映済み）\n")
+    help_lines.append("• /notify set type first second\n  → 通知時刻を設定（type は normal または exam）。例: /notify set normal 30 15")
+    help_lines.append("• /notify set_period period time\n  → 各時限の開始時間を設定（例: /notify set_period 1 09:00）")
+    help_lines.append("• /notify show\n  → 現在の通知設定を確認（DM）\n")
 
     # --- その他（ユーティリティ） ---
     help_lines.append("===  その他ユーティリティ ===")
-    help_lines.append("• /listgmailcancellations\n  → Gmail からの休講を取り込み、ユーザーデータに保存します")
+    help_lines.append("• /mail fetch\n  → Gmail からの休講を取り込み、ユーザーデータに保存します")
+    help_lines.append("• /setting period_time period time\n  → 各時限の開始時刻をグローバルに設定します")
     help_lines.append("• /exam create/list/show/addclass/removeclass など、引数に対して自動候補（オートコンプリート）が使えます")
     help_lines.append("• コマンドはすべてスラッシュコマンドです。引数候補は引数入力中に表示されます。\n")
 
