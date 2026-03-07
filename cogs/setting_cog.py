@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import re
-from utils import load_user_data, save_user_data
+from utils import load_user_data, save_user_data, send_dm
 
 class SettingCog(commands.GroupCog, name = "setting"):
     def __init__(self, bot: commands.Bot):
@@ -21,6 +21,34 @@ class SettingCog(commands.GroupCog, name = "setting"):
         save_user_data(user_id, data)
 
         await interaction.response.send_message(f"{period}限を{time}に設定しました。", ephemeral = True)
+
+    @app_commands.command(name = "show", description = "現在の時限設定をDMで表示します")
+    async def show_settings(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral = True)
+        user_id = interaction.user.id
+        data = load_user_data(user_id)
+
+        period_overrides = data.get("period_overrides", {}) or {}
+        exam_period_overrides = data.get("exam_period_overrides", {}) or {}
+
+        lines = ["時限設定:"]
+
+        lines.append("\n【通常時限の開始時刻カスタマイズ】")
+        if period_overrides:
+            for period, time in sorted(period_overrides.items()):
+                lines.append(f"  {period}限: {time}")
+        else:
+            lines.append("  (設定なし)")
+
+        lines.append("\n【試験時限の開始時刻カスタマイズ】")
+        if exam_period_overrides:
+            for period, time in sorted(exam_period_overrides.items()):
+                lines.append(f"  {period}限: {time}")
+        else:
+            lines.append("  (設定なし)")
+
+        await send_dm(interaction.user, "\n".join(lines))
+        await interaction.followup.send("設定内容をDMで送信しました。", ephemeral = True)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(SettingCog(bot))
