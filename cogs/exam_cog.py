@@ -2,8 +2,21 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import re
-from utils import load_user_data, save_user_data, send_dm
+from utils import load_user_data, save_user_data, send_dm, send_long_dm
 from datetime import datetime
+
+WEEKDAYS = ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"]
+WEEKDAY_MAP = {w: i for i, w in enumerate(WEEKDAYS)}
+
+PERIOD_TO_TIME = {
+    "1": "09:00",
+    "2": "10:45",
+    "3": "13:15",
+    "4": "15:00",
+    "5": "16:45",
+    "6": "18:25"
+}
+
 
 class ExamCog(commands.GroupCog, name="exam"):
     def __init__(self, bot: commands.Bot):
@@ -23,20 +36,68 @@ class ExamCog(commands.GroupCog, name="exam"):
                     break
         return choices
 
-    @app_commands.command(name="set_time", descriotion="試験の各時限開始時間を登録します")
-    @app_commands.describe(period="設定する時限（例：１）", time = "開始時刻（例：09:00）")
+    async def weekday_autocomplete(self, interaction: discord.Interaction, current: str):
+        return [app_commands.Choice(name=w, value=w) for w in WEEKDAYS if current in w]
+
+    async def period_autocomplete(self, interaction: discord.Interaction, current: str):
+        return [app_commands.Choice(name=p, value=p) for p in PERIOD_TO_TIME.keys() if current in p]
+
+    async def subject_autocomplete(self, interaction: discord.Interaction, current: str):
+        user_id = interaction.user.id
+        data = load_user_data(user_id)
+        subjects = []
+        for c in data.get("classes", []) or []:
+            s = str(c.get("subject", "")).strip()
+            if s and current in s:
+                subjects.append(s)
+        for m in data.get("makeup_classes", []) or []:
+            s = str(m.get("subject", "")).strip()
+            if s and current in s:
+                subjects.append(s)
+        seen = set()
+        choices = []
+        for s in subjects:
+            if s not in seen:
+                seen.add(s)
+                choices.append(app_commands.Choice(name=s, value=s))
+                if len(choices) >= 25:
+                    break
+        return choices
+
+    async def room_autocomplete(self, interaction: discord.Interaction, current: str):
+        user_id = interaction.user.id
+        data = load_user_data(user_id)
+        rooms = []
+        for c in data.get("classes", []) or []:
+            r = str(c.get("room", "")).strip()
+            if r and current in r:
+                rooms.append(r)
+        for m in data.get("makeup_classes", []) or []:
+            r = str(m.get("room", "")).strip()
+            if r and current in r:
+                rooms.append(r)
+        seen = set()
+        choices = []
+        for r in rooms:
+            if r not in seen:
+                seen.add(r)
+                choices.append(app_commands.Choice(name=r, value=r))
+                if len(choices) >= 25:
+                    break
+        return choices
+
+    @app_commands.command(name="set_time", description="試験の各時限開始時間を登録します")
+    @app_commands.describe(period="設定する時限（例：１）", time="開始時刻（例：09:00）")
     async def set_exam_period_time(self, interaction: discord.Interaction, period: str, time: str):
-        if not re.match(r"^\d{1,2}:\d{2}$",time):
-            await interaction.response.send_message("時刻は「HH:MM」の形式で入力してください（例：09:00）。",ephemeral=True)
+        if not re.match(r"^(2[0-3]|[01]?\d):[0-5]\d$", time):
+            await interaction.response.send_message(
+                "時刻は「HH:MM」の形式で入力してください（例：09:00）。時刻は0〜23時：0〜59分で入力して下さい。",
+                ephemeral=True
+            )
             return
 
         user_id = interaction.user.id
         data = load_user_data(user_id)
-
-        if not re.match(r"^(2[0-3]|[01]?\d):[0-5]\d$",time):
-            await interaction.response.send_message("時刻は0～23時：0～59分で入力して下さい",ephemeral = True)
-            await interaction.responese.send_message("検証したい気持ちは大いに認めます。ほかのバグを見つけたら管理者に報告してください",epehemeral = True)
-            return
 
         if "exam_period_overrides" not in data:
             data["exam_period_overrides"] = {}
@@ -44,7 +105,7 @@ class ExamCog(commands.GroupCog, name="exam"):
         data["exam_period_overrides"][period] = time
         save_user_data(user_id, data)
 
-        await interaction.response.send_message(f"試験時の{period}限の開始時刻を{time}に設定しました。",ephemeral = True)
+        await interaction.response.send_message(f"試験時の{period}限の開始時刻を{time}に設定しました。", ephemeral=True)
 
     @app_commands.command(name="create", description="試験用時間割を作成します（名前・期間）")
     @app_commands.describe(name="時間割名", start="開始日 (YYYY-MM-DD)", end="終了日 (YYYY-MM-DD)")
@@ -73,7 +134,7 @@ class ExamCog(commands.GroupCog, name="exam"):
 
     @app_commands.command(name="delete", description="指定した試験時間割を削除します")
     @app_commands.describe(name="削除する時間割名")
-    @app_commands.autocomplete(name=self.exam_name_autocomplete)
+    @app_commands.autocomplete(name=exam_name_autocomplete)
     async def exam_delete(self, interaction: discord.Interaction, name: str):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
@@ -103,7 +164,7 @@ class ExamCog(commands.GroupCog, name="exam"):
 
     @app_commands.command(name="show", description="指定した試験時間割の中身を表示します")
     @app_commands.describe(name="表示する時間割名")
-    @app_commands.autocomplete(name=self.exam_name_autocomplete)
+    @app_commands.autocomplete(name=exam_name_autocomplete)
     async def exam_show(self, interaction: discord.Interaction, name: str):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
@@ -122,8 +183,8 @@ class ExamCog(commands.GroupCog, name="exam"):
         classes_sorted = sorted(classes, key=lambda x: (x.get("day", 0), int(x.get("period", 0) if str(x.get("period")).isdigit() else 999)))
         for c in classes_sorted:
             wd = WEEKDAYS[int(c.get("day"))] if c.get("day") is not None else "不明曜日"
-            pd = c.get("period") or c.get("time") or "?"
-            lines.append(f"{wd} {pd}限 {c.get('subject','')} ({c.get('room','未設定')})")
+            period_display = c.get("period") or c.get("time") or "?"
+            lines.append(f"{wd} {period_display}限 {c.get('subject', '')} ({c.get('room', '未設定')})")
         await send_long_dm(interaction.user, "\n".join(lines))
         await interaction.followup.send("試験時間割をDMで送信しました。", ephemeral=True)
 
@@ -166,6 +227,7 @@ class ExamCog(commands.GroupCog, name="exam"):
         deleted = before - len(target.get("classes", []))
         await send_dm(interaction.user, f" 試験時間割「{name}」から {weekday} {period}限 を削除しました（{deleted}件）。")
         await interaction.followup.send("削除結果をDMで送信しました。", ephemeral=True)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(ExamCog(bot))
