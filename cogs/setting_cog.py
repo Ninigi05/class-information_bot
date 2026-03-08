@@ -16,6 +16,14 @@ class SettingCog(commands.GroupCog, name="setting"):
             if current in p
         ]
 
+    async def reset_period_autocomplete(self, interaction: discord.Interaction, current: str):
+        options = list(PERIOD_TO_TIME.keys()) + ["all"]
+        return [
+            app_commands.Choice(name=p, value=p)
+            for p in options
+            if current in p
+        ]
+
     @app_commands.command(name="period_time", description="各時限の開始時刻を登録します（例：1限 → 09:00）")
     @app_commands.describe(period="設定する時限（例：1）", time="開始時刻（例：09:00）")
     @app_commands.autocomplete(period=period_autocomplete)
@@ -73,7 +81,7 @@ class SettingCog(commands.GroupCog, name="setting"):
 
     @app_commands.command(name="reset_period", description="時限の開始時刻をデフォルトに戻します")
     @app_commands.describe(period="リセットする時限（例：1）、all で全てリセット")
-    @app_commands.autocomplete(period=period_autocomplete)
+    @app_commands.autocomplete(period=reset_period_autocomplete)
     async def reset_period_time(self, interaction: discord.Interaction, period: str):
         user_id = interaction.user.id
         data = load_user_data(user_id)
