@@ -139,6 +139,7 @@ class ClassCog(commands.GroupCog, name="class"):
         rows = []
         for c in classes:
             rows.append({
+                "day_idx": c.get("day"),
                 "曜日": WEEKDAYS[c.get("day")],
                 "時限": c.get("period"),
                 "授業名": c.get("subject"),
@@ -147,7 +148,8 @@ class ClassCog(commands.GroupCog, name="class"):
 
         df = pd.DataFrame(rows)
         df["時限"] = pd.to_numeric(df["時限"], errors="coerce")
-        df = df.sort_values(["曜日", "時限"])
+        df = df.sort_values(["day_idx", "時限"])
+        df = df.drop(columns=["day_idx"])
 
         plt.figure(figsize=(8, max(2, len(df) * 0.4)))
         plt.axis("off")

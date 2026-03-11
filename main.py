@@ -767,7 +767,12 @@ async def do_notification_pass(now: datetime = None):
                     continue
 
                 # user-defined period time overrides
-                period_overrides = data.get("period_time_overrides", {}) or {}
+                # Prefer new key "period_overrides", fall back to legacy "period_time_overrides" for existing users
+                period_overrides = (
+                    data.get("period_overrides")
+                    or data.get("period_time_overrides", {})
+                    or {}
+                )
 
                 # Determine today target weekday (consider per-class overrides for specific dates)
                 target_weekday = today_weekday_actual
@@ -868,45 +873,45 @@ async def do_notification_pass(now: datetime = None):
 
                     diff_minutes = class_minutes - now_minutes
 
-                # 通知設定時間(offsets)に一致するか確認
-                if diff_minutes in offsets:
-                    # 持ち物情報の取得
-                    mats = parse_materials_field(cls.get("materials"))
-                    mats_text = ("\n 持ち物: " + ", ".join(mats)) if mats else ""
+                    # 通知設定時間(offsets)に一致するか確認
+                    if diff_minutes in offsets:
+                        # 持ち物情報の取得
+                        mats = parse_materials_field(cls.get("materials"))
+                        mats_text = ("\n 持ち物: " + ", ".join(mats)) if mats else ""
 
-                    # 休講判定
-                    is_canceled = any(
-                        c.get("date") == today_str and 
-                        normalize_text(c.get("subject", "")) == normalize_text(cls.get("subject", "")) 
-                        for c in (manual_cancellations + cancellations)
-                    )
-                    
-                    # カウントを減らす条件: 最初の通知タイミング(offsets[0]) かつ 休講ではない
-                    if diff_minutes == offsets[0] and not is_canceled:
-                        subj_norm = normalize_text(cls.get("subject", ""))
-                        # 授業データの残り回数を更新
-                        for origin_cls in data["classes"]:
-                            if normalize_text(origin_cls.get("subject", "")) == subj_norm:
-                                if "remaining" in origin_cls:
-                                    origin_cls["remaining"] = max(0, int(origin_cls["remaining"]) - 1)
-                        
-                        # カウントが0になった授業をリストから削除
-                        data["classes"] = [c for c in data["classes"] if c.get("remaining", 1) > 0]
-                        save_user_data(user_id, data)
+                        # 休講判定
+                        is_canceled = any(
+                            c.get("date") == today_str and
+                            normalize_text(c.get("subject", "")) == normalize_text(cls.get("subject", ""))
+                            for c in (manual_cancellations + cancellations)
+                        )
 
-                    # 通知メッセージの作成
-                    msg = f"教室「{room}」で{diff_minutes}分後に授業「{cls.get('subject','')}」が始まります{mats_text}"
-                    
-                    if any(c.get("date") == today_str and c.get("subject") == cls.get("subject") for c in manual_cancellations):
-                        msg += "\n※この授業は休講です（手動設定）"
-                    elif any(c.get("date") == today_str and c.get("subject") == cls.get("subject") for c in cancellations if c.get("date")):
-                        msg += "\n※この授業は休講です（メール取得）"
+                        # カウントを減らす条件: 最初の通知タイミング(offsets[0]) かつ 休講ではない
+                        if diff_minutes == offsets[0] and not is_canceled:
+                            subj_norm = normalize_text(cls.get("subject", ""))
+                            # 授業データの残り回数を更新
+                            for origin_cls in data["classes"]:
+                                if normalize_text(origin_cls.get("subject", "")) == subj_norm:
+                                    if "remaining" in origin_cls:
+                                        origin_cls["remaining"] = max(0, int(origin_cls["remaining"]) - 1)
 
-                    try:
-                        await send_dm(user, msg)
-                    except Exception as e:
-                        print(f"[ERROR] DM送信失敗 (リマインダー) user={user_id}: {e}")
-                        
+                            # カウントが0になった授業をリストから削除
+                            data["classes"] = [c for c in data["classes"] if c.get("remaining", 1) > 0]
+                            save_user_data(user_id, data)
+
+                        # 通知メッセージの作成
+                        msg = f"教室「{room}」で{diff_minutes}分後に授業「{cls.get('subject','')}」が始まります{mats_text}"
+
+                        if any(c.get("date") == today_str and c.get("subject") == cls.get("subject") for c in manual_cancellations):
+                            msg += "\n※この授業は休講です（手動設定）"
+                        elif any(c.get("date") == today_str and c.get("subject") == cls.get("subject") for c in cancellations if c.get("date")):
+                            msg += "\n※この授業は休講です（メール取得）"
+
+                        try:
+                            await send_dm(user, msg)
+                        except Exception as e:
+                            print(f"[ERROR] DM送信失敗 (リマインダー) user={user_id}: {e}")
+
                 # Morning summary: send at exact hour:minute if now matches or if now was passed in as 08:00 via catchup (we check exact minute)
                 if now.hour == 8 and now.minute == 0:
                     # check persistent morning marker to avoid duplicate
@@ -967,11 +972,6 @@ async def do_notification_pass(now: datetime = None):
                             except Exception as e:
                                 print(f"[ERROR] DM送信失敗 (授業一覧) user={user_id}: {e}")
 
-                        # mark as sent
-                        m = load_morning_sent()
-                        m[today_str] = True
-                        save_morning_sent(m)
-
         except Exception as e:
             print(f"[ERROR] do_notification_pass 中の例外: {e}")
             traceback.print_exc()
@@ -991,10 +991,8 @@ async def notification_manager():
     print("[notification_manager] 起動: 通知ループを開始します。")
     # On startup: if now is after 08:00 and morning summary not sent yet, do a catch-up
     now = datetime.now()
-    today_str = now.strftime("%Y-%m-%d")
-    morning_marker = load_morning_sent()
     # catch-up window: 08:00 <= now.hour < 12  (調整可)
-    if now.hour >= 8 and now.hour < 12 and not morning_marker.get(today_str):
+    if now.hour >= 8 and now.hour < 12:
         print("[notification_manager] 起動時補完: 本日の朝一覧を補完送信します（08:00 ユーザー向け）。")
         # Call do_notification_pass as if it were 08:00 so morning summary logic triggers
         try:
