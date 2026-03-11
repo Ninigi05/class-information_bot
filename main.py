@@ -418,44 +418,18 @@ async def mail_setcode(interaction: discord.Interaction, code: str):
         await interaction.followup.send(f"認証に失敗しました: {e}", ephemeral=True)
 
 
-@mail_group.command(name="fetch", description="Gmailから最新の休講情報を取得して登録（DMで要約）")
+@mail_group.command(name="fetch", description="Gmailから最新の休講情報を取得してDMで表示（保存はしません）")
 async def mail_fetch(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     user_id = interaction.user.id
     try:
-        new_cancellations = fetch_cancellation_emails(user_id)
-        user_data = load_user_data(user_id)
-        existing = user_data.get("gmail_cancellations", []) or []
-        today = datetime.now().date()
-        filtered = []
-        for c in existing:
-            d = c.get("date")
-            if not d:
-                filtered.append(c)
-                continue
-            try:
-                dt = datetime.fromisoformat(d).date()
-                if dt >= today:
-                    filtered.append(c)
-            except Exception:
-                filtered.append(c)
-        existing = filtered
-        for nc in new_cancellations:
-            dup = any(
-                nc.get("date") == ex.get("date") and
-                normalize_text(nc.get("subject", "")) == normalize_text(ex.get("subject", ""))
-                for ex in existing
-            )
-            if not dup:
-                existing.append(nc)
-        user_data["gmail_cancellations"] = existing
-        save_user_data(user_id, user_data)
-        if not existing:
+        cancellations = fetch_cancellation_emails(user_id)
+        if not cancellations:
             await send_dm(interaction.user, "登録授業に該当する休講情報は見つかりませんでした。")
             await interaction.followup.send("取得完了（該当なし）。", ephemeral=True)
             return
-        lines = ["最新の休講情報（保存済）:"]
-        for c in existing:
+        lines = ["最新の休講情報（表示のみ）:"]
+        for c in cancellations:
             date_display = c.get("date") or "不明日付"
             period_display = c.get("period") or "?"
             subj = c.get("subject") or c.get("subject_header") or "（不明）"
