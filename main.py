@@ -767,7 +767,12 @@ async def do_notification_pass(now: datetime = None):
                     continue
 
                 # user-defined period time overrides
-                period_overrides = data.get("period_overrides", {}) or {}
+                # Prefer new key "period_overrides", fall back to legacy "period_time_overrides" for existing users
+                period_overrides = (
+                    data.get("period_overrides")
+                    or data.get("period_time_overrides", {})
+                    or {}
+                )
 
                 # Determine today target weekday (consider per-class overrides for specific dates)
                 target_weekday = today_weekday_actual
