@@ -3,14 +3,25 @@ import json
 import re
 import asyncio
 import traceback
+import logging
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from datetime import datetime, date
-from utils import load_user_data, save_user_data, send_dm, send_long_dm, WEEKDAYS, WEEKDAY_MAP, PERIOD_TO_TIME, DEFAULT_NOTIFY
+from utils import (
+    load_user_data,
+    save_user_data,
+    send_dm,
+    send_long_dm,
+    WEEKDAYS,
+    WEEKDAY_MAP,
+    PERIOD_TO_TIME,
+    DEFAULT_NOTIFY,
+)
 
 BASE_DIR = os.getcwd()
 MORNING_MARK_FILE = os.path.join(BASE_DIR, "morning_sent.json")
+logger = logging.getLogger(__name__)
 
 
 def _load_morning_sent():
@@ -26,7 +37,7 @@ def _save_morning_sent(d):
         with open(MORNING_MARK_FILE, "w", encoding="utf-8") as f:
             json.dump(d, f, ensure_ascii=False)
     except Exception as e:
-        print(f"[WARN] morning_sent 保存失敗: {e}")
+        logger.warning(f"[WARN] morning_sent 保存失敗: {e}")
 
 
 class NotificationCog(commands.Cog):
@@ -41,7 +52,9 @@ class NotificationCog(commands.Cog):
 
     # ------------------- autocomplete helpers -------------------
 
-    async def subject_autocomplete(self, interaction: discord.Interaction, current: str):
+    async def subject_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ):
         user_id = interaction.user.id
         data = load_user_data(user_id)
         subjects = []
@@ -63,7 +76,9 @@ class NotificationCog(commands.Cog):
                     break
         return choices
 
-    async def makeup_time_autocomplete(self, interaction: discord.Interaction, current: str):
+    async def makeup_time_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ):
         vals = list(PERIOD_TO_TIME.keys()) + list(set(PERIOD_TO_TIME.values()))
         choices = []
         for v in vals:
@@ -75,33 +90,50 @@ class NotificationCog(commands.Cog):
 
     # ------------------- notify group -------------------
 
-    notify_group = app_commands.Group(name="notify", description="通知時刻や朝一覧の設定")
+    notify_group = app_commands.Group(
+        name="notify", description="通知時刻や朝一覧の設定"
+    )
 
-    @notify_group.command(name="set_period", description="時限ごとの開始時刻を登録します")
+    @notify_group.command(
+        name="set_period", description="時限ごとの開始時刻を登録します"
+    )
     @app_commands.describe(period="時限（例：1）", time="開始時刻（例：09:00）")
-    async def notify_set_period(self, interaction: discord.Interaction, period: str, time: str):
+    async def notify_set_period(
+        self, interaction: discord.Interaction, period: str, time: str
+    ):
         if not re.match(r"^(2[0-3]|[01]?\d):[0-5]\d$", time):
             await interaction.response.send_message(
-                "時刻は「HH:MM」の形式で入力してください（例：09:00）。",
-                ephemeral=True
+                "時刻は「HH:MM」の形式で入力してください（例：09:00）。", ephemeral=True
             )
             return
         user_id = interaction.user.id
         data = load_user_data(user_id)
         data.setdefault("period_overrides", {})[period] = time
         save_user_data(user_id, data)
-        await interaction.response.send_message(f"{period}限の開始時刻を {time} に設定しました。", ephemeral=True)
+        await interaction.response.send_message(
+            f"{period}限の開始時刻を {time} に設定しました。", ephemeral=True
+        )
 
-    @notify_group.command(name="set", description="通知時刻（分前）を設定します（type: normal|exam）")
-    @app_commands.describe(type="normal または exam", first="1回目通知（分前）", second="2回目通知（分前）")
-    async def notify_set(self, interaction: discord.Interaction, type: str, first: int, second: int):
+    @notify_group.command(
+        name="set", description="通知時刻（分前）を設定します（type: normal|exam）"
+    )
+    @app_commands.describe(
+        type="normal または exam", first="1回目通知（分前）", second="2回目通知（分前）"
+    )
+    async def notify_set(
+        self, interaction: discord.Interaction, type: str, first: int, second: int
+    ):
         await interaction.response.defer(ephemeral=True)
         t = (type or "").lower()
         if t not in ("normal", "exam"):
-            await interaction.followup.send("type は 'normal' または 'exam' を指定してください。", ephemeral=True)
+            await interaction.followup.send(
+                "type は 'normal' または 'exam' を指定してください。", ephemeral=True
+            )
             return
         if first <= 0 or second <= 0:
-            await interaction.followup.send("分は正の整数で指定してください。", ephemeral=True)
+            await interaction.followup.send(
+                "分は正の整数で指定してください。", ephemeral=True
+            )
             return
         if first < second:
             first, second = second, first
@@ -111,7 +143,10 @@ class NotificationCog(commands.Cog):
         data["notify_settings"][t]["first"] = int(first)
         data["notify_settings"][t]["second"] = int(second)
         save_user_data(user_id, data)
-        await send_dm(interaction.user, f" 通知設定を保存しました（{t}）：{first}分 / {second}分 前")
+        await send_dm(
+            interaction.user,
+            f" 通知設定を保存しました（{t}）：{first}分 / {second}分 前",
+        )
         await interaction.followup.send("通知設定をDMで保存しました。", ephemeral=True)
 
     @notify_group.command(name="show", description="現在の通知設定を表示します（DM）")
@@ -132,24 +167,32 @@ class NotificationCog(commands.Cog):
 
     # ------------------- cancel group -------------------
 
-    cancel_group = app_commands.Group(name="cancel", description="休講の手動登録 / 表示 / 削除")
+    cancel_group = app_commands.Group(
+        name="cancel", description="休講の手動登録 / 表示 / 削除"
+    )
 
     @cancel_group.command(name="add", description="手動で休講情報を追加します")
     @app_commands.describe(date="休講日 (YYYY-MM-DD)", subject="科目名")
     @app_commands.autocomplete(subject=subject_autocomplete)
-    async def cancel_add(self, interaction: discord.Interaction, date: str, subject: str):
+    async def cancel_add(
+        self, interaction: discord.Interaction, date: str, subject: str
+    ):
         await interaction.response.defer(ephemeral=True)
         try:
             datetime.strptime(date, "%Y-%m-%d")
         except Exception:
-            await interaction.followup.send("日付形式が無効です。YYYY-MM-DD で指定してください。", ephemeral=True)
+            await interaction.followup.send(
+                "日付形式が無効です。YYYY-MM-DD で指定してください。", ephemeral=True
+            )
             return
         user_id = interaction.user.id
         data = load_user_data(user_id)
         data.setdefault("manual_cancellations", [])
         for c in data["manual_cancellations"]:
             if c.get("date") == date and c.get("subject") == subject:
-                await interaction.followup.send("既に同一の休講が登録されています。", ephemeral=True)
+                await interaction.followup.send(
+                    "既に同一の休講が登録されています。", ephemeral=True
+                )
                 return
         data["manual_cancellations"].append({"date": date, "subject": subject})
         save_user_data(user_id, data)
@@ -159,23 +202,35 @@ class NotificationCog(commands.Cog):
     @cancel_group.command(name="remove", description="手動で登録した休講を削除します")
     @app_commands.describe(date="休講日 (YYYY-MM-DD)", subject="科目名")
     @app_commands.autocomplete(subject=subject_autocomplete)
-    async def cancel_remove(self, interaction: discord.Interaction, date: str, subject: str):
+    async def cancel_remove(
+        self, interaction: discord.Interaction, date: str, subject: str
+    ):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
         data = load_user_data(user_id)
         if not data.get("manual_cancellations"):
-            await interaction.followup.send("手動休講は登録されていません。", ephemeral=True)
+            await interaction.followup.send(
+                "手動休講は登録されていません。", ephemeral=True
+            )
             return
-        new_list = [c for c in data["manual_cancellations"] if not (c.get("date") == date and c.get("subject") == subject)]
+        new_list = [
+            c
+            for c in data["manual_cancellations"]
+            if not (c.get("date") == date and c.get("subject") == subject)
+        ]
         if len(new_list) == len(data["manual_cancellations"]):
-            await interaction.followup.send("該当の休講が見つかりませんでした。", ephemeral=True)
+            await interaction.followup.send(
+                "該当の休講が見つかりませんでした。", ephemeral=True
+            )
             return
         data["manual_cancellations"] = new_list
         save_user_data(user_id, data)
         await send_dm(interaction.user, f" 手動休講を削除しました: {date} {subject}")
         await interaction.followup.send("削除結果をDMで送信しました。", ephemeral=True)
 
-    @cancel_group.command(name="list", description="手動で登録した休講一覧を表示します（DM）")
+    @cancel_group.command(
+        name="list", description="手動で登録した休講一覧を表示します（DM）"
+    )
     async def cancel_list(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
@@ -183,7 +238,9 @@ class NotificationCog(commands.Cog):
         manual = data.get("manual_cancellations", []) or []
         if not manual:
             await send_dm(interaction.user, "手動休講は登録されていません。")
-            await interaction.followup.send("DMを送信しました（休講なし）。", ephemeral=True)
+            await interaction.followup.send(
+                "DMを送信しました（休講なし）。", ephemeral=True
+            )
             return
         lines = ["手動で登録した休講一覧:"]
         for c in sorted(manual, key=lambda x: x.get("date", "")):
@@ -193,45 +250,76 @@ class NotificationCog(commands.Cog):
 
     # ------------------- makeup group -------------------
 
-    makeup_group = app_commands.Group(name="makeup", description="補講（補講の追加/一覧/削除）")
+    makeup_group = app_commands.Group(
+        name="makeup", description="補講（補講の追加/一覧/削除）"
+    )
 
     @makeup_group.command(name="add", description="補講を追加します")
-    @app_commands.describe(date="補講日 (YYYY-MM-DD)", time="開始時刻または時限（HH:MM or 2）", subject="科目名", room="教室")
-    @app_commands.autocomplete(time=makeup_time_autocomplete, subject=subject_autocomplete)
-    async def makeup_add(self, interaction: discord.Interaction, date: str, time: str, subject: str, room: str):
+    @app_commands.describe(
+        date="補講日 (YYYY-MM-DD)",
+        time="開始時刻または時限（HH:MM or 2）",
+        subject="科目名",
+        room="教室",
+    )
+    @app_commands.autocomplete(
+        time=makeup_time_autocomplete, subject=subject_autocomplete
+    )
+    async def makeup_add(
+        self,
+        interaction: discord.Interaction,
+        date: str,
+        time: str,
+        subject: str,
+        room: str,
+    ):
         await interaction.response.defer(ephemeral=True)
         try:
             datetime.strptime(date, "%Y-%m-%d")
         except Exception:
-            await interaction.followup.send("日付形式が無効です。YYYY-MM-DD で指定してください。", ephemeral=True)
+            await interaction.followup.send(
+                "日付形式が無効です。YYYY-MM-DD で指定してください。", ephemeral=True
+            )
             return
         user_id = interaction.user.id
         data = load_user_data(user_id)
         data.setdefault("makeup_classes", [])
         for m in data["makeup_classes"]:
             if m.get("date") == date and m.get("time") == time:
-                await interaction.followup.send("同じ日時ですでに補講が登録されています。", ephemeral=True)
+                await interaction.followup.send(
+                    "同じ日時ですでに補講が登録されています。", ephemeral=True
+                )
                 return
-        data["makeup_classes"].append({"date": date, "time": time, "subject": subject, "room": room})
+        data["makeup_classes"].append(
+            {"date": date, "time": time, "subject": subject, "room": room}
+        )
         save_user_data(user_id, data)
-        await send_dm(interaction.user, f" 補講を登録しました: {date} {time} {subject} ({room})")
+        await send_dm(
+            interaction.user, f" 補講を登録しました: {date} {time} {subject} ({room})"
+        )
         await interaction.followup.send("補講をDMで登録しました。", ephemeral=True)
 
     @makeup_group.command(name="remove", description="補講を削除します（日時指定）")
-    @app_commands.describe(date="補講日 (YYYY-MM-DD)", time="開始時刻または時限（HH:MM or 2）")
+    @app_commands.describe(
+        date="補講日 (YYYY-MM-DD)", time="開始時刻または時限（HH:MM or 2）"
+    )
     @app_commands.autocomplete(time=makeup_time_autocomplete)
-    async def makeup_remove(self, interaction: discord.Interaction, date: str, time: str):
+    async def makeup_remove(
+        self, interaction: discord.Interaction, date: str, time: str
+    ):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
         data = load_user_data(user_id)
         before = len(data.get("makeup_classes", []))
         data["makeup_classes"] = [
-            m for m in data.get("makeup_classes", [])
+            m
+            for m in data.get("makeup_classes", [])
             if not (m.get("date") == date and str(m.get("time")) == str(time))
         ]
         save_user_data(user_id, data)
         removed = before - len(data.get("makeup_classes", []))
-        await send_dm(interaction.user, f" 補講を{removed}件削除しました: {date} {time}")
+        await send_dm(
+            interaction.user, f" 補講を{removed}件削除しました: {date} {time}"
+        )
         await interaction.followup.send("削除結果をDMで送信しました。", ephemeral=True)
 
     @makeup_group.command(name="list", description="補講一覧をDMで表示します")
@@ -242,11 +330,15 @@ class NotificationCog(commands.Cog):
         mak = data.get("makeup_classes", []) or []
         if not mak:
             await send_dm(interaction.user, "補講は登録されていません。")
-            await interaction.followup.send("DMを送信しました（補講なし）。", ephemeral=True)
+            await interaction.followup.send(
+                "DMを送信しました（補講なし）。", ephemeral=True
+            )
             return
         lines = ["補講一覧:"]
         for m in sorted(mak, key=lambda x: (x.get("date", ""), x.get("time", ""))):
-            lines.append(f"{m.get('date')} {m.get('time')} : {m.get('subject')} ({m.get('room')})")
+            lines.append(
+                f"{m.get('date')} {m.get('time')} : {m.get('subject')} ({m.get('room')})"
+            )
         await send_long_dm(interaction.user, "\n".join(lines))
         await interaction.followup.send("補講一覧をDMで送信しました。", ephemeral=True)
 
@@ -269,7 +361,7 @@ class NotificationCog(commands.Cog):
                     now=now.replace(hour=8, minute=0, second=0, microsecond=0)
                 )
             except Exception as e:
-                print(f"[WARN] 起動時補完で例外: {e}")
+                logger.warning(f"[WARN] 起動時補完で例外: {e}")
 
     async def _do_notification_pass(self, now: datetime = None):
         if now is None:
@@ -287,7 +379,9 @@ class NotificationCog(commands.Cog):
 
             try:
                 for filename in os.listdir(BASE_DIR):
-                    if not filename.startswith("user_") or not filename.endswith(".json"):
+                    if not filename.startswith("user_") or not filename.endswith(
+                        ".json"
+                    ):
                         continue
                     try:
                         user_id = int(filename.split("_")[1].split(".")[0])
@@ -299,7 +393,7 @@ class NotificationCog(commands.Cog):
                     except discord.NotFound:
                         continue
                     except Exception as e:
-                        print(f"[WARN] ユーザー取得失敗: {user_id} ({e})")
+                        logger.warning(f"[WARN] ユーザー取得失敗: {user_id} ({e})")
                         continue
 
                     data = load_user_data(user_id)
@@ -308,7 +402,11 @@ class NotificationCog(commands.Cog):
 
                     classes = data.get("classes", []) or []
                     exam_schedules = data.get("exam_schedules", []) or []
-                    if not classes and not data.get("makeup_classes") and not exam_schedules:
+                    if (
+                        not classes
+                        and not data.get("makeup_classes")
+                        and not exam_schedules
+                    ):
                         continue
 
                     # check if today falls within an active exam schedule
@@ -336,19 +434,24 @@ class NotificationCog(commands.Cog):
                     if active_exam:
                         # --- exam period notification ---
                         exam_classes = active_exam.get("classes", []) or []
-                        exam_classes_today = [c for c in exam_classes if c.get("day") == target_weekday]
+                        exam_classes_today = [
+                            c for c in exam_classes if c.get("day") == target_weekday
+                        ]
                         makeups_today = [
-                            m for m in data.get("makeup_classes", []) or []
+                            m
+                            for m in data.get("makeup_classes", []) or []
                             if m.get("date") == today_str
                         ]
                         final_classes = list(exam_classes_today)
                         for m in makeups_today:
-                            final_classes.append({
-                                "period": m.get("time", "?"),
-                                "time": m.get("time"),
-                                "subject": m.get("subject"),
-                                "room": m.get("room", "未設定"),
-                            })
+                            final_classes.append(
+                                {
+                                    "period": m.get("time", "?"),
+                                    "time": m.get("time"),
+                                    "subject": m.get("subject"),
+                                    "room": m.get("room", "未設定"),
+                                }
+                            )
 
                         # exam-specific period time overrides
                         period_overrides = data.get("exam_period_overrides", {}) or {}
@@ -369,7 +472,10 @@ class NotificationCog(commands.Cog):
                         # per-class exam reminders
                         for cls in final_classes:
                             room = cls.get("room", "未設定")
-                            if "room_overrides" in cls and today_str in cls["room_overrides"]:
+                            if (
+                                "room_overrides" in cls
+                                and today_str in cls["room_overrides"]
+                            ):
                                 room = cls["room_overrides"][today_str]
 
                             p_key = str(cls.get("period"))
@@ -392,7 +498,8 @@ class NotificationCog(commands.Cog):
                                 continue
 
                             is_canceled = any(
-                                c.get("date") == today_str and c.get("subject") == cls.get("subject")
+                                c.get("date") == today_str
+                                and c.get("subject") == cls.get("subject")
                                 for c in manual_cancellations
                             )
 
@@ -403,7 +510,9 @@ class NotificationCog(commands.Cog):
                             try:
                                 await send_dm(user, msg)
                             except Exception as e:
-                                print(f"[ERROR] DM送信失敗 (試験リマインダー) user={user_id}: {e}")
+                                logger.error(
+                                    f"[ERROR] DM送信失敗 (試験リマインダー) user={user_id}: {e}"
+                                )
 
                         # morning summary (exam) at 08:00
                         if now.hour == 8 and now.minute == 0:
@@ -412,10 +521,13 @@ class NotificationCog(commands.Cog):
                             if user_marks.get(today_str):
                                 continue
 
-                            morning_marker.setdefault(str(user_id), {})[today_str] = True
+                            morning_marker.setdefault(str(user_id), {})[
+                                today_str
+                            ] = True
                             _save_morning_sent(morning_marker)
 
                             if final_classes:
+
                                 def sort_key_exam(x):
                                     p = x.get("period")
                                     try:
@@ -437,41 +549,56 @@ class NotificationCog(commands.Cog):
                                 msg = f"【試験期間: {active_exam.get('name')}】本日の授業一覧（{WEEKDAYS[target_weekday]}）:\n"
                                 for cls in today_sorted:
                                     room = cls.get("room", "未設定")
-                                    if "room_overrides" in cls and today_str in cls["room_overrides"]:
+                                    if (
+                                        "room_overrides" in cls
+                                        and today_str in cls["room_overrides"]
+                                    ):
                                         room = cls["room_overrides"][today_str]
                                     manual_hit = any(
-                                        c.get("date") == today_str and c.get("subject") == cls.get("subject")
+                                        c.get("date") == today_str
+                                        and c.get("subject") == cls.get("subject")
                                         for c in manual_cancellations
                                     )
                                     note = " ※休講（手動設定）" if manual_hit else ""
-                                    period_display = cls.get("period", cls.get("time", "?"))
+                                    period_display = cls.get(
+                                        "period", cls.get("time", "?")
+                                    )
                                     msg += f"{period_display}限 {cls.get('subject')} ({room}){note}\n"
 
                                 try:
                                     await send_long_dm(user, msg)
                                 except Exception as e:
-                                    print(f"[ERROR] DM送信失敗 (試験授業一覧) user={user_id}: {e}")
+                                    logger.error(
+                                        f"[ERROR] DM送信失敗 (試験授業一覧) user={user_id}: {e}"
+                                    )
 
                     else:
                         # --- normal period notification ---
-                        today_classes = [c for c in classes if c.get("day") == target_weekday]
+                        today_classes = [
+                            c for c in classes if c.get("day") == target_weekday
+                        ]
                         makeups_today = [
-                            m for m in data.get("makeup_classes", []) or []
+                            m
+                            for m in data.get("makeup_classes", []) or []
                             if m.get("date") == today_str
                         ]
 
                         # combine regular and makeup classes
                         final_classes = list(today_classes)
                         for m in makeups_today:
-                            final_classes.append({
-                                "period": m.get("time", "?"),
-                                "time": m.get("time"),
-                                "subject": m.get("subject"),
-                                "room": m.get("room", "未設定"),
-                            })
+                            final_classes.append(
+                                {
+                                    "period": m.get("time", "?"),
+                                    "time": m.get("time"),
+                                    "subject": m.get("subject"),
+                                    "room": m.get("room", "未設定"),
+                                }
+                            )
 
                         # resolve notification offsets
-                        normal_cfg = user_notify.get("normal") or DEFAULT_NOTIFY["normal"]
+                        normal_cfg = (
+                            user_notify.get("normal") or DEFAULT_NOTIFY["normal"]
+                        )
                         try:
                             first_off = int(normal_cfg.get("first"))
                             second_off = int(normal_cfg.get("second"))
@@ -487,7 +614,10 @@ class NotificationCog(commands.Cog):
                         # per-class reminder notifications
                         for cls in final_classes:
                             room = cls.get("room", "未設定")
-                            if "room_overrides" in cls and today_str in cls["room_overrides"]:
+                            if (
+                                "room_overrides" in cls
+                                and today_str in cls["room_overrides"]
+                            ):
                                 room = cls["room_overrides"][today_str]
 
                             p_key = str(cls.get("period"))
@@ -509,7 +639,8 @@ class NotificationCog(commands.Cog):
                                 continue
 
                             is_canceled = any(
-                                c.get("date") == today_str and c.get("subject") == cls.get("subject")
+                                c.get("date") == today_str
+                                and c.get("subject") == cls.get("subject")
                                 for c in manual_cancellations
                             )
 
@@ -520,7 +651,9 @@ class NotificationCog(commands.Cog):
                             try:
                                 await send_dm(user, msg)
                             except Exception as e:
-                                print(f"[ERROR] DM送信失敗 (リマインダー) user={user_id}: {e}")
+                                logger.error(
+                                    f"[ERROR] DM送信失敗 (リマインダー) user={user_id}: {e}"
+                                )
 
                         # morning summary at 08:00
                         if now.hour == 8 and now.minute == 0:
@@ -529,10 +662,13 @@ class NotificationCog(commands.Cog):
                             if user_marks.get(today_str):
                                 continue
 
-                            morning_marker.setdefault(str(user_id), {})[today_str] = True
+                            morning_marker.setdefault(str(user_id), {})[
+                                today_str
+                            ] = True
                             _save_morning_sent(morning_marker)
 
                             if final_classes:
+
                                 def sort_key(x):
                                     p = x.get("period")
                                     try:
@@ -553,24 +689,31 @@ class NotificationCog(commands.Cog):
                                 msg = f"本日の授業一覧（{WEEKDAYS[target_weekday]}）:\n"
                                 for cls in today_sorted:
                                     room = cls.get("room", "未設定")
-                                    if "room_overrides" in cls and today_str in cls["room_overrides"]:
+                                    if (
+                                        "room_overrides" in cls
+                                        and today_str in cls["room_overrides"]
+                                    ):
                                         room = cls["room_overrides"][today_str]
                                     manual_hit = any(
-                                        c.get("date") == today_str and c.get("subject") == cls.get("subject")
+                                        c.get("date") == today_str
+                                        and c.get("subject") == cls.get("subject")
                                         for c in manual_cancellations
                                     )
                                     note = " ※休講（手動設定）" if manual_hit else ""
-                                    period_display = cls.get("period", cls.get("time", "?"))
+                                    period_display = cls.get(
+                                        "period", cls.get("time", "?")
+                                    )
                                     msg += f"{period_display}限 {cls.get('subject')} ({room}){note}\n"
 
                                 try:
                                     await send_long_dm(user, msg)
                                 except Exception as e:
-                                    print(f"[ERROR] DM送信失敗 (授業一覧) user={user_id}: {e}")
+                                    logger.error(
+                                        f"[ERROR] DM送信失敗 (授業一覧) user={user_id}: {e}"
+                                    )
 
             except Exception as e:
-                print(f"[ERROR] _do_notification_pass 中の例外: {e}")
-                traceback.print_exc()
+                logger.exception(f"[ERROR] _do_notification_pass 中の例外: {e}")
 
 
 async def setup(bot: commands.Bot):
