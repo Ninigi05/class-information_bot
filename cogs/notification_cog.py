@@ -24,6 +24,16 @@ MORNING_MARK_FILE = os.path.join(BASE_DIR, "morning_sent.json")
 logger = logging.getLogger(__name__)
 
 
+def _is_user_morning_time(now: datetime, data: dict) -> bool:
+    """ユーザー設定 morning_notice_time(HH:MM) に一致するか判定。"""
+    t = str(data.get("morning_notice_time", "08:00") or "08:00").strip()
+    try:
+        hh, mm = [int(x) for x in t.split(":", 1)]
+    except Exception:
+        hh, mm = 8, 0
+    return now.hour == hh and now.minute == mm
+
+
 def _load_morning_sent():
     try:
         with open(MORNING_MARK_FILE, "r", encoding="utf-8") as f:
@@ -514,8 +524,8 @@ class NotificationCog(commands.Cog):
                                     f"[ERROR] DM送信失敗 (試験リマインダー) user={user_id}: {e}"
                                 )
 
-                        # morning summary (exam) at 08:00
-                        if now.hour == 8 and now.minute == 0:
+                        # morning summary (exam) at configured time
+                        if _is_user_morning_time(now, data):
                             morning_marker = _load_morning_sent()
                             user_marks = morning_marker.get(str(user_id), {})
                             if user_marks.get(today_str):
@@ -655,8 +665,8 @@ class NotificationCog(commands.Cog):
                                     f"[ERROR] DM送信失敗 (リマインダー) user={user_id}: {e}"
                                 )
 
-                        # morning summary at 08:00
-                        if now.hour == 8 and now.minute == 0:
+                        # morning summary at configured time
+                        if _is_user_morning_time(now, data):
                             morning_marker = _load_morning_sent()
                             user_marks = morning_marker.get(str(user_id), {})
                             if user_marks.get(today_str):

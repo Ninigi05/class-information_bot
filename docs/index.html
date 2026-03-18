@@ -3,273 +3,237 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Class Dashboard</title>
+  <title>授業登録 Web</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    body {
-      background: radial-gradient(circle at 20% 20%, #fef3c7 0%, #fff7ed 30%, #ecfeff 100%);
-    }
-  </style>
 </head>
-<body class="text-slate-800 min-h-screen">
-  <main class="max-w-7xl mx-auto p-4 md:p-8">
-    <section class="rounded-2xl border border-amber-200 bg-white/85 backdrop-blur shadow-xl overflow-hidden">
-      <div class="px-6 py-6 md:px-8 md:py-7 bg-gradient-to-r from-amber-100 via-orange-100 to-cyan-100 border-b border-amber-200">
-        <h1 class="text-2xl md:text-3xl font-black tracking-tight">Time Table Dashboard</h1>
-        <p class="text-sm md:text-base text-slate-600 mt-2">GitHub Pages から自宅PCの FastAPI を操作します</p>
+<body class="bg-slate-100 text-slate-800 min-h-screen">
+  <main class="max-w-6xl mx-auto p-4 md:p-8 space-y-6">
+    <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-extrabold">授業登録（Web）</h1>
+          <p class="text-sm text-slate-600 mt-1">登録後にキーを発行し、Discord の <code>/web applykey</code> で反映します。</p>
+        </div>
+        <a href="./exam.html" class="px-4 py-2 rounded-lg bg-indigo-600 text-white font-bold hover:bg-indigo-700">試験時間割ページへ</a>
       </div>
+    </section>
 
-      <div class="p-6 md:p-8 space-y-6">
-        <div id="toast" class="hidden rounded-lg px-4 py-3 text-sm font-semibold"></div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <label class="block">
-            <span class="text-sm font-bold text-slate-700">API Key</span>
-            <input id="apiKey" type="password" class="mt-1 w-full rounded-lg border-slate-300 focus:ring-2 focus:ring-cyan-500" placeholder="X-API-Key" />
-          </label>
-          <label class="block">
-            <span class="text-sm font-bold text-slate-700">Discord User ID</span>
-            <input id="userId" type="text" class="mt-1 w-full rounded-lg border-slate-300 focus:ring-2 focus:ring-cyan-500" placeholder="123456789012345678" />
-          </label>
-          <div class="flex items-end gap-2">
-            <button id="loadBtn" class="w-full rounded-lg bg-cyan-600 hover:bg-cyan-700 text-white font-bold px-4 py-2.5 transition">読み込み</button>
-          </div>
-        </div>
-
-        <div class="rounded-xl bg-slate-50 border border-slate-200 p-4 text-sm text-slate-600">
-          セルをクリックすると授業の追加・更新・削除ができます。
-        </div>
-
-        <div class="rounded-xl bg-amber-50 border border-amber-200 p-4 text-xs md:text-sm text-amber-900">
-          接続先URLは固定されています。利用者は API Key と User ID の入力のみで利用できます。
-        </div>
-
-        <div class="overflow-x-auto">
-          <table class="min-w-full border border-slate-200 rounded-xl overflow-hidden" id="timetable"></table>
-        </div>
+    <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7 space-y-4">
+      <h2 class="text-lg font-bold">通常時間割</h2>
+      <div class="overflow-x-auto">
+        <table id="timetable" class="min-w-full border border-slate-300"></table>
       </div>
+      <p class="text-xs text-slate-500">セルクリックで授業追加/編集</p>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7 space-y-4">
+      <h2 class="text-lg font-bold">通知設定</h2>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <label class="block"><span class="text-sm font-semibold">授業前通知 1回目（分）</span><input id="normalFirst" type="number" min="1" value="15" class="mt-1 w-full rounded border-slate-300" /></label>
+        <label class="block"><span class="text-sm font-semibold">授業前通知 2回目（分）</span><input id="normalSecond" type="number" min="1" value="10" class="mt-1 w-full rounded border-slate-300" /></label>
+        <label class="block"><span class="text-sm font-semibold">朝の一覧通知時刻</span><input id="morningTime" type="time" value="08:00" class="mt-1 w-full rounded border-slate-300" /></label>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7 space-y-4">
+      <h2 class="text-lg font-bold">時間割の上書き設定</h2>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+        <label><span class="text-sm">曜日変更 日付</span><input id="ovDayDate" type="date" class="mt-1 w-full rounded border-slate-300" /></label>
+        <label><span class="text-sm">変更先曜日</span><select id="ovDayWeekday" class="mt-1 w-full rounded border-slate-300"></select></label>
+        <button id="addDayOverride" class="px-4 py-2 rounded bg-cyan-600 text-white font-bold hover:bg-cyan-700">曜日上書き追加</button>
+      </div>
+      <div id="dayOverrideList" class="text-sm text-slate-700"></div>
+
+      <hr class="my-2" />
+
+      <div class="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+        <label><span class="text-sm">教室変更 日付</span><input id="ovRoomDate" type="date" class="mt-1 w-full rounded border-slate-300" /></label>
+        <label><span class="text-sm">時限</span><select id="ovRoomPeriod" class="mt-1 w-full rounded border-slate-300"></select></label>
+        <label><span class="text-sm">新しい教室</span><input id="ovRoomValue" type="text" class="mt-1 w-full rounded border-slate-300" /></label>
+        <button id="addRoomOverride" class="px-4 py-2 rounded bg-cyan-600 text-white font-bold hover:bg-cyan-700">教室上書き追加</button>
+      </div>
+      <div id="roomOverrideList" class="text-sm text-slate-700"></div>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7 space-y-4">
+      <h2 class="text-lg font-bold">Gmail休講認証（Web）</h2>
+      <div class="flex flex-wrap gap-2">
+        <button id="openGmailAuth" class="px-4 py-2 rounded bg-amber-600 text-white font-bold hover:bg-amber-700">認証URLを取得</button>
+        <a id="gmailAuthUrl" href="#" target="_blank" rel="noopener" class="hidden px-4 py-2 rounded bg-amber-100 text-amber-900 font-semibold border border-amber-300">Gmail認証ページを開く</a>
+      </div>
+      <label class="block"><span class="text-sm">取得した認証コード（code）</span><input id="gmailAuthCode" type="text" class="mt-1 w-full rounded border-slate-300" placeholder="4/0Ab..." /></label>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7 space-y-3">
+      <h2 class="text-lg font-bold">連携キー発行</h2>
+      <button id="issueKey" class="px-5 py-2.5 rounded-lg bg-emerald-600 text-white font-extrabold hover:bg-emerald-700">連携キーを発行</button>
+      <div id="result" class="hidden rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-sm"></div>
     </section>
   </main>
 
-  <dialog id="editDialog" class="rounded-xl p-0 w-[min(92vw,440px)] backdrop:bg-slate-900/30">
+  <dialog id="classDialog" class="rounded-xl p-0 w-[min(92vw,440px)] backdrop:bg-slate-900/30">
     <form method="dialog" class="p-0">
-      <div class="px-5 py-4 border-b bg-slate-50">
-        <h2 class="text-lg font-extrabold" id="dialogTitle">授業を編集</h2>
+      <div class="px-5 py-4 border-b bg-slate-50"><h3 class="text-lg font-bold" id="classDialogTitle">授業編集</h3></div>
+      <div class="p-5 space-y-3">
+        <p id="classDialogSlot" class="text-sm text-slate-600"></p>
+        <label class="block"><span class="text-sm">科目名</span><input id="dlgSubject" type="text" class="mt-1 w-full rounded border-slate-300" /></label>
+        <label class="block"><span class="text-sm">教室</span><input id="dlgRoom" type="text" class="mt-1 w-full rounded border-slate-300" /></label>
       </div>
-      <div class="p-5 space-y-4">
-        <p class="text-sm text-slate-600" id="dialogSlot"></p>
-        <label class="block">
-          <span class="text-sm font-bold">科目名</span>
-          <input id="subjectInput" type="text" class="mt-1 w-full rounded-lg border-slate-300" />
-        </label>
-        <label class="block">
-          <span class="text-sm font-bold">教室</span>
-          <input id="roomInput" type="text" class="mt-1 w-full rounded-lg border-slate-300" />
-        </label>
-      </div>
-      <div class="px-5 py-4 border-t bg-slate-50 flex gap-2 justify-end">
-        <button id="deleteBtn" value="cancel" class="rounded-lg bg-rose-100 text-rose-700 font-bold px-4 py-2">削除</button>
-        <button value="cancel" class="rounded-lg bg-slate-200 text-slate-700 font-bold px-4 py-2">閉じる</button>
-        <button id="saveBtn" value="default" class="rounded-lg bg-cyan-600 hover:bg-cyan-700 text-white font-bold px-4 py-2">保存</button>
+      <div class="px-5 py-4 border-t bg-slate-50 flex justify-end gap-2">
+        <button id="dlgDelete" value="cancel" class="px-3 py-2 rounded bg-rose-100 text-rose-700 font-bold">削除</button>
+        <button value="cancel" class="px-3 py-2 rounded bg-slate-200 font-bold">閉じる</button>
+        <button id="dlgSave" value="default" class="px-3 py-2 rounded bg-cyan-600 text-white font-bold">保存</button>
       </div>
     </form>
   </dialog>
 
   <script>
-    const FIXED_API_BASE_URL = "https://inter-movies-relations-reporter.trycloudflare.com";
+    const BACKEND = "https://inter-movies-relations-reporter.trycloudflare.com";
+    const STORAGE_KEY = "web_reg_draft_v2";
+    const weekdays = ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"];
+    const periods = ["1", "2", "3", "4", "5", "6"];
 
-    const storageKeys = {
-      apiKey: "classdash_apiKey",
-      userId: "classdash_userId",
-    };
-
-    const state = {
-      weekdays: [],
-      periods: [],
-      periodToTime: {},
-      table: {},
-      editing: null,
+    const draft = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null") || {
+      classes: [],
+      notify: { normal_first: 15, normal_second: 10, exam_first: 30, exam_second: 25, morning_time: "08:00" },
+      period_overrides: {},
+      day_overrides: [],
+      room_overrides: [],
+      exam_schedules: [],
+      exam_period_overrides: {},
+      gmail_auth_code: "",
     };
 
     const el = {
-      apiKey: document.getElementById("apiKey"),
-      userId: document.getElementById("userId"),
-      loadBtn: document.getElementById("loadBtn"),
       timetable: document.getElementById("timetable"),
-      toast: document.getElementById("toast"),
-      editDialog: document.getElementById("editDialog"),
-      dialogTitle: document.getElementById("dialogTitle"),
-      dialogSlot: document.getElementById("dialogSlot"),
-      subjectInput: document.getElementById("subjectInput"),
-      roomInput: document.getElementById("roomInput"),
-      saveBtn: document.getElementById("saveBtn"),
-      deleteBtn: document.getElementById("deleteBtn"),
+      normalFirst: document.getElementById("normalFirst"),
+      normalSecond: document.getElementById("normalSecond"),
+      morningTime: document.getElementById("morningTime"),
+      ovDayDate: document.getElementById("ovDayDate"),
+      ovDayWeekday: document.getElementById("ovDayWeekday"),
+      addDayOverride: document.getElementById("addDayOverride"),
+      dayOverrideList: document.getElementById("dayOverrideList"),
+      ovRoomDate: document.getElementById("ovRoomDate"),
+      ovRoomPeriod: document.getElementById("ovRoomPeriod"),
+      ovRoomValue: document.getElementById("ovRoomValue"),
+      addRoomOverride: document.getElementById("addRoomOverride"),
+      roomOverrideList: document.getElementById("roomOverrideList"),
+      openGmailAuth: document.getElementById("openGmailAuth"),
+      gmailAuthUrl: document.getElementById("gmailAuthUrl"),
+      gmailAuthCode: document.getElementById("gmailAuthCode"),
+      issueKey: document.getElementById("issueKey"),
+      result: document.getElementById("result"),
+      classDialog: document.getElementById("classDialog"),
+      classDialogTitle: document.getElementById("classDialogTitle"),
+      classDialogSlot: document.getElementById("classDialogSlot"),
+      dlgSubject: document.getElementById("dlgSubject"),
+      dlgRoom: document.getElementById("dlgRoom"),
+      dlgSave: document.getElementById("dlgSave"),
+      dlgDelete: document.getElementById("dlgDelete"),
     };
 
-    function loadSavedSettings() {
-      for (const [k, key] of Object.entries(storageKeys)) {
-        const v = localStorage.getItem(key);
-        if (v) el[k].value = v;
-      }
+    let editing = null;
+
+    function persist() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
     }
 
-    function saveSettings() {
-      for (const [k, key] of Object.entries(storageKeys)) {
-        localStorage.setItem(key, el[k].value.trim());
-      }
+    function classAt(weekday, period) {
+      return draft.classes.find(c => c.weekday === weekday && String(c.period) === String(period)) || null;
     }
 
-    function showToast(message, type = "info") {
-      const map = {
-        info: "bg-slate-100 text-slate-700 border border-slate-300",
-        success: "bg-emerald-100 text-emerald-800 border border-emerald-300",
-        error: "bg-rose-100 text-rose-800 border border-rose-300",
-      };
-      el.toast.className = "rounded-lg px-4 py-3 text-sm font-semibold " + map[type];
-      el.toast.textContent = message;
-      el.toast.classList.remove("hidden");
-      setTimeout(() => el.toast.classList.add("hidden"), 2800);
+    function setClass(weekday, period, subject, room) {
+      draft.classes = draft.classes.filter(c => !(c.weekday === weekday && String(c.period) === String(period)));
+      if (subject && room) draft.classes.push({ weekday, period: String(period), subject, room });
+      persist();
+      renderTimetable();
     }
 
-    function getConfig() {
-      const apiBaseUrl = FIXED_API_BASE_URL;
-      const apiKey = el.apiKey.value.trim();
-      const userId = el.userId.value.trim();
-      if (!apiBaseUrl || !apiKey || !userId) {
-        throw new Error("API URL / API Key / User ID を入力してください");
-      }
-      return { apiBaseUrl, apiKey, userId };
-    }
-
-    async function apiFetch(path, options = {}) {
-      const { apiBaseUrl, apiKey } = getConfig();
-      const res = await fetch(apiBaseUrl + path, {
-        ...options,
-        headers: {
-          "Content-Type": "application/json",
-          "X-API-Key": apiKey,
-          ...(options.headers || {}),
-        },
-      });
-      if (!res.ok) {
-        let detail = `HTTP ${res.status}`;
-        try {
-          const body = await res.json();
-          detail = body.detail || detail;
-        } catch (_) {}
-        throw new Error(detail);
-      }
-      if (res.status === 204) return null;
-      return res.json();
-    }
-
-    function renderTable() {
-      const { weekdays, periods, periodToTime, table } = state;
-      let html = "";
-
-      html += "<thead class='bg-slate-100'>";
-      html += "<tr>";
-      html += "<th class='px-3 py-3 border text-xs md:text-sm'>時限</th>";
-      for (const w of weekdays) {
-        html += `<th class='px-3 py-3 border text-xs md:text-sm'>${w}</th>`;
-      }
-      html += "</tr></thead>";
-
-      html += "<tbody>";
+    function renderTimetable() {
+      let html = "<thead><tr><th class='border p-2 bg-slate-100'>時限</th>";
+      for (const w of weekdays) html += `<th class='border p-2 bg-slate-100'>${w}</th>`;
+      html += "</tr></thead><tbody>";
       for (const p of periods) {
-        const time = periodToTime[p] || "";
-        html += "<tr>";
-        html += `<td class='px-2 py-3 border text-center text-xs md:text-sm font-bold bg-slate-50 whitespace-nowrap'>${p}限<br><span class='font-normal text-slate-500'>${time}</span></td>`;
-
+        html += `<tr><td class='border p-2 bg-slate-50 text-center font-bold'>${p}限</td>`;
         for (const w of weekdays) {
-          const c = table?.[w]?.[p] || null;
-          const baseCls = "w-full text-left rounded-lg border p-2 min-h-[64px] transition";
-          if (c) {
-            html += `<td class='border p-1'>
-              <button class='${baseCls} bg-cyan-50 hover:bg-cyan-100 border-cyan-200' data-weekday='${w}' data-period='${p}'>
-                <div class='text-sm font-bold text-cyan-900'>${escapeHtml(c.subject || "")}</div>
-                <div class='text-xs text-cyan-800 mt-1'>${escapeHtml(c.room || "")}</div>
-              </button>
-            </td>`;
-          } else {
-            html += `<td class='border p-1'>
-              <button class='${baseCls} bg-white hover:bg-amber-50 border-dashed border-slate-300' data-weekday='${w}' data-period='${p}'>
-                <div class='text-xs text-slate-400'>クリックして追加</div>
-              </button>
-            </td>`;
-          }
+          const c = classAt(w, p);
+          html += `<td class='border p-1'>
+            <button class='w-full min-h-[66px] text-left rounded ${c ? "bg-cyan-50 hover:bg-cyan-100 border border-cyan-200" : "bg-white hover:bg-slate-50 border border-dashed border-slate-300"}' data-weekday='${w}' data-period='${p}'>
+              ${c ? `<div class='font-bold text-cyan-900 text-sm'>${escapeHtml(c.subject)}</div><div class='text-xs text-cyan-700'>${escapeHtml(c.room)}</div>` : "<div class='text-xs text-slate-400'>追加</div>"}
+            </button>
+          </td>`;
         }
         html += "</tr>";
       }
       html += "</tbody>";
-
       el.timetable.innerHTML = html;
-      el.timetable.querySelectorAll("button[data-weekday]").forEach((btn) => {
-        btn.addEventListener("click", () => openEditor(btn.dataset.weekday, btn.dataset.period));
+      el.timetable.querySelectorAll("button[data-weekday]").forEach(btn => {
+        btn.addEventListener("click", () => openClassDialog(btn.dataset.weekday, btn.dataset.period));
       });
     }
 
-    function openEditor(weekday, period) {
-      const current = state.table?.[weekday]?.[period] || null;
-      state.editing = { weekday, period, current };
-      el.dialogTitle.textContent = current ? "授業を更新" : "授業を追加";
-      el.dialogSlot.textContent = `${weekday} ${period}限`;
-      el.subjectInput.value = current?.subject || "";
-      el.roomInput.value = current?.room || "";
-      el.deleteBtn.style.display = current ? "inline-block" : "none";
-      el.editDialog.showModal();
+    function openClassDialog(weekday, period) {
+      const cur = classAt(weekday, period);
+      editing = { weekday, period };
+      el.classDialogTitle.textContent = cur ? "授業編集" : "授業追加";
+      el.classDialogSlot.textContent = `${weekday} ${period}限`;
+      el.dlgSubject.value = cur?.subject || "";
+      el.dlgRoom.value = cur?.room || "";
+      el.dlgDelete.style.display = cur ? "inline-block" : "none";
+      el.classDialog.showModal();
     }
 
-    async function loadSchedule() {
-      const { userId } = getConfig();
-      saveSettings();
-      el.loadBtn.disabled = true;
-      el.loadBtn.textContent = "読み込み中...";
-      try {
-        const data = await apiFetch(`/api/user/${userId}/schedule-table`);
-        state.weekdays = data.weekdays || [];
-        state.periods = data.periods || [];
-        state.periodToTime = data.period_to_time || {};
-        state.table = data.table || {};
-        renderTable();
-        showToast("時間割を読み込みました", "success");
-      } finally {
-        el.loadBtn.disabled = false;
-        el.loadBtn.textContent = "読み込み";
-      }
+    function renderOverrideLists() {
+      el.dayOverrideList.innerHTML = draft.day_overrides.length
+        ? draft.day_overrides.map((x, i) => `<div class='py-1'>${x.date} → ${x.weekday} <button class='text-rose-700 underline' data-day-rm='${i}'>削除</button></div>`).join("")
+        : "<div class='text-slate-400'>未設定</div>";
+      el.roomOverrideList.innerHTML = draft.room_overrides.length
+        ? draft.room_overrides.map((x, i) => `<div class='py-1'>${x.date} ${x.period}限 → ${escapeHtml(x.room)} <button class='text-rose-700 underline' data-room-rm='${i}'>削除</button></div>`).join("")
+        : "<div class='text-slate-400'>未設定</div>";
+
+      el.dayOverrideList.querySelectorAll("button[data-day-rm]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          draft.day_overrides.splice(Number(btn.dataset.dayRm), 1);
+          persist();
+          renderOverrideLists();
+        });
+      });
+      el.roomOverrideList.querySelectorAll("button[data-room-rm]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          draft.room_overrides.splice(Number(btn.dataset.roomRm), 1);
+          persist();
+          renderOverrideLists();
+        });
+      });
     }
 
-    async function saveCurrentCell() {
-      if (!state.editing) return;
-      const { userId } = getConfig();
-      const payload = {
-        weekday: state.editing.weekday,
-        period: state.editing.period,
-        subject: el.subjectInput.value.trim(),
-        room: el.roomInput.value.trim(),
+    async function fetchGmailAuthUrl() {
+      const res = await fetch(`${BACKEND}/api/public/gmail-auth-url`);
+      if (!res.ok) throw new Error("Gmail認証URLの取得に失敗しました");
+      return res.json();
+    }
+
+    async function issueLinkKey() {
+      const body = {
+        ...draft,
+        notify: {
+          ...draft.notify,
+          normal_first: Number(el.normalFirst.value || 15),
+          normal_second: Number(el.normalSecond.value || 10),
+          morning_time: el.morningTime.value || "08:00",
+        },
+        gmail_auth_code: (el.gmailAuthCode.value || "").trim(),
       };
-      if (!payload.subject || !payload.room) {
-        throw new Error("科目名と教室を入力してください");
-      }
-      await apiFetch(`/api/user/${userId}/classes/upsert`, {
+      const res = await fetch(`${BACKEND}/api/public/issue-link-key`, {
         method: "POST",
-        body: JSON.stringify(payload),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
       });
-      el.editDialog.close();
-      await loadSchedule();
-      showToast("保存しました", "success");
-    }
-
-    async function deleteCurrentCell() {
-      if (!state.editing) return;
-      const { userId } = getConfig();
-      const { weekday, period } = state.editing;
-      await apiFetch(`/api/user/${userId}/classes/${encodeURIComponent(weekday)}/${encodeURIComponent(period)}`, {
-        method: "DELETE",
-      });
-      el.editDialog.close();
-      await loadSchedule();
-      showToast("削除しました", "success");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+      return res.json();
     }
 
     function escapeHtml(s) {
@@ -281,46 +245,95 @@
         .replaceAll("'", "&#039;");
     }
 
-    el.loadBtn.addEventListener("click", async () => {
+    // init controls
+    weekdays.forEach(w => {
+      const o = document.createElement("option");
+      o.value = w;
+      o.textContent = w;
+      el.ovDayWeekday.appendChild(o);
+    });
+    periods.forEach(p => {
+      const o = document.createElement("option");
+      o.value = p;
+      o.textContent = `${p}限`;
+      el.ovRoomPeriod.appendChild(o);
+    });
+
+    el.normalFirst.value = draft.notify?.normal_first ?? 15;
+    el.normalSecond.value = draft.notify?.normal_second ?? 10;
+    el.morningTime.value = draft.notify?.morning_time ?? "08:00";
+    el.gmailAuthCode.value = draft.gmail_auth_code || "";
+
+    el.dlgSave.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (!editing) return;
+      setClass(editing.weekday, editing.period, el.dlgSubject.value.trim(), el.dlgRoom.value.trim());
+      el.classDialog.close();
+    });
+
+    el.dlgDelete.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (!editing) return;
+      setClass(editing.weekday, editing.period, "", "");
+      el.classDialog.close();
+    });
+
+    el.addDayOverride.addEventListener("click", () => {
+      const date = el.ovDayDate.value;
+      const weekday = el.ovDayWeekday.value;
+      if (!date || !weekday) return;
+      draft.day_overrides.push({ date, weekday });
+      persist();
+      renderOverrideLists();
+    });
+
+    el.addRoomOverride.addEventListener("click", () => {
+      const date = el.ovRoomDate.value;
+      const period = el.ovRoomPeriod.value;
+      const room = el.ovRoomValue.value.trim();
+      if (!date || !period || !room) return;
+      draft.room_overrides.push({ date, period, room });
+      persist();
+      renderOverrideLists();
+    });
+
+    el.openGmailAuth.addEventListener("click", async () => {
       try {
-        await loadSchedule();
+        const data = await fetchGmailAuthUrl();
+        el.gmailAuthUrl.href = data.auth_url;
+        el.gmailAuthUrl.classList.remove("hidden");
       } catch (e) {
-        showToast(e.message || "読み込みに失敗しました", "error");
+        alert(e.message || "Gmail認証URL取得失敗");
       }
     });
 
-    el.saveBtn.addEventListener("click", async (e) => {
-      e.preventDefault();
+    el.issueKey.addEventListener("click", async () => {
       try {
-        await saveCurrentCell();
-      } catch (err) {
-        showToast(err.message || "保存に失敗しました", "error");
+        const data = await issueLinkKey();
+        el.result.classList.remove("hidden");
+        el.result.innerHTML = `
+          <div class='font-bold'>連携キー: <span class='text-xl'>${escapeHtml(data.link_key)}</span></div>
+          <div class='mt-2'>有効期限: ${escapeHtml(data.expires_at)}</div>
+          <div class='mt-2'>Discordで以下を実行してください:</div>
+          <div class='mt-1 p-2 bg-white border rounded font-mono'>/web applykey key:${escapeHtml(data.link_key)}</div>
+        `;
+      } catch (e) {
+        alert(e.message || "キー発行失敗");
       }
     });
 
-    el.deleteBtn.addEventListener("click", async (e) => {
-      e.preventDefault();
-      try {
-        await deleteCurrentCell();
-      } catch (err) {
-        showToast(err.message || "削除に失敗しました", "error");
-      }
-    });
-
-    [el.apiKey, el.userId].forEach((input) => {
-      input.addEventListener("keydown", async (e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          try {
-            await loadSchedule();
-          } catch (err) {
-            showToast(err.message || "読み込みに失敗しました", "error");
-          }
-        }
+    [el.normalFirst, el.normalSecond, el.morningTime, el.gmailAuthCode].forEach(inp => {
+      inp.addEventListener("change", () => {
+        draft.notify.normal_first = Number(el.normalFirst.value || 15);
+        draft.notify.normal_second = Number(el.normalSecond.value || 10);
+        draft.notify.morning_time = el.morningTime.value || "08:00";
+        draft.gmail_auth_code = el.gmailAuthCode.value || "";
+        persist();
       });
     });
 
-    loadSavedSettings();
+    renderTimetable();
+    renderOverrideLists();
   </script>
 </body>
 </html>

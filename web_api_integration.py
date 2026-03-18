@@ -11,9 +11,11 @@ from fastapi.responses import JSONResponse
 import os
 from typing import Optional
 from pydantic import BaseModel, Field
+from google_auth_oauthlib.flow import Flow
 
 from utils import load_user_data, save_user_data, WEEKDAYS, PERIOD_TO_TIME, WEEKDAY_MAP
 from api_security import verify_api_key
+from web_link_service import create_link_key
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +101,58 @@ class ClassUpsertRequest(BaseModel):
     room: str = Field(..., min_length=1, description="教室")
 
 
+class WebClassDraft(BaseModel):
+    weekday: str
+    period: str
+    subject: str
+    room: str
+
+
+class NotifyDraft(BaseModel):
+    normal_first: int = 15
+    normal_second: int = 10
+    exam_first: int = 30
+    exam_second: int = 25
+    morning_time: str = "08:00"
+
+
+class DayOverrideDraft(BaseModel):
+    date: str
+    weekday: str
+
+
+class RoomOverrideDraft(BaseModel):
+    date: str
+    period: str
+    room: str
+
+
+class WebExamClassDraft(BaseModel):
+    weekday: str
+    period: str
+    subject: str
+    room: str
+    time: Optional[str] = None
+
+
+class WebExamScheduleDraft(BaseModel):
+    name: str
+    start: str
+    end: str
+    classes: list[WebExamClassDraft] = Field(default_factory=list)
+
+
+class WebRegistrationDraft(BaseModel):
+    classes: list[WebClassDraft] = Field(default_factory=list)
+    period_overrides: dict[str, str] = Field(default_factory=dict)
+    notify: NotifyDraft = Field(default_factory=NotifyDraft)
+    day_overrides: list[DayOverrideDraft] = Field(default_factory=list)
+    room_overrides: list[RoomOverrideDraft] = Field(default_factory=list)
+    exam_schedules: list[WebExamScheduleDraft] = Field(default_factory=list)
+    exam_period_overrides: dict[str, str] = Field(default_factory=dict)
+    gmail_auth_code: Optional[str] = None
+
+
 def _validate_weekday_and_period(weekday: str, period: str) -> None:
     if weekday not in WEEKDAY_MAP:
         raise HTTPException(
@@ -119,6 +173,20 @@ def _find_class_index(classes: list[dict], day: int, period: str) -> int:
     return -1
 
 
+def _resolve_gmail_credentials_path() -> str:
+    """環境差分（ローカル/コンテナ）を吸収して credentials パスを解決。"""
+    env_val = (os.getenv("GMAIL_CREDENTIALS") or "").strip()
+    if not env_val:
+        return ""
+    if os.path.isabs(env_val):
+        return env_val
+    local = os.path.join(os.getcwd(), env_val)
+    if os.path.exists(local):
+        return local
+    app_path = os.path.join("/app", env_val)
+    return app_path
+
+
 # ============ ヘルスチェック ============
 
 
@@ -126,6 +194,57 @@ def _find_class_index(classes: list[dict], day: int, period: str) -> int:
 async def health_check():
     """ヘルスチェック"""
     return {"status": "ok", "service": "Discord授業情報Bot API"}
+
+
+@web_app.get("/api/public/gmail-auth-url")
+async def get_public_gmail_auth_url():
+    """Web 画面向け Gmail 認証URLを発行する。"""
+    credentials_file = _resolve_gmail_credentials_path()
+    if not credentials_file or not os.path.exists(credentials_file):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="GMAIL_CREDENTIALS が見つかりません。サーバー設定を確認してください。",
+        )
+    try:
+        redirect_uri = os.getenv(
+            "GMAIL_REDIRECT_URI", "https://ninigi05.github.io/oauth-redirect/"
+        )
+        flow = Flow.from_client_secrets_file(
+            credentials_file,
+            scopes=["https://www.googleapis.com/auth/gmail.readonly"],
+            redirect_uri=redirect_uri,
+        )
+        auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
+        return {
+            "auth_url": auth_url,
+            "redirect_uri": redirect_uri,
+            "message": "認証後に表示された code を Web画面に貼り付けてください。",
+        }
+    except Exception as e:
+        logger.exception(f"Gmail auth URL 発行失敗: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Gmail 認証URLの生成に失敗しました",
+        )
+
+
+@web_app.post("/api/public/issue-link-key")
+async def issue_link_key(payload: WebRegistrationDraft):
+    """Webで登録した内容を一時キー化し、Discord 側取り込み用のキーを返す。"""
+    try:
+        key, expires_at = create_link_key(payload.model_dump())
+        return {
+            "ok": True,
+            "link_key": key,
+            "expires_at": expires_at,
+            "discord_command": f"/web applykey key:{key}",
+        }
+    except Exception as e:
+        logger.exception(f"リンクキー生成失敗: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="リンクキーの発行に失敗しました",
+        )
 
 
 # ============ ユーザーデータエンドポイント ============

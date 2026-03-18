@@ -23,14 +23,29 @@ from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import Flow
 
-from utils import load_user_data, save_user_data, send_dm, send_long_dm
+from utils import load_user_data, save_user_data, send_dm, send_long_dm, WEEKDAY_MAP
 from web_api_integration import start_web_server
+from web_link_service import consume_link_key
 
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GUILD_ID = int(os.getenv("GUILD_ID") or 0)
-GMAIL_CREDENTIALS = os.path.join("/app", os.getenv("GMAIL_CREDENTIALS") or "")
+
+
+def _resolve_gmail_credentials() -> str:
+    env_val = (os.getenv("GMAIL_CREDENTIALS") or "").strip()
+    if not env_val:
+        return ""
+    if os.path.isabs(env_val):
+        return env_val
+    local = os.path.join(os.getcwd(), env_val)
+    if os.path.exists(local):
+        return local
+    return os.path.join("/app", env_val)
+
+
+GMAIL_CREDENTIALS = _resolve_gmail_credentials()
 
 BASE_DIR = os.getcwd()
 
@@ -449,6 +464,158 @@ mail_group = app_commands.Group(
 )
 
 
+def _apply_web_payload_to_user_data(user_data: dict, payload: dict) -> dict:
+    """Web で入力した下書きを user_data へ反映（上書き中心）。"""
+    classes_raw = payload.get("classes") or []
+    classes: list[dict] = []
+    for c in classes_raw:
+        wd = str(c.get("weekday", "")).strip()
+        if wd not in WEEKDAY_MAP:
+            continue
+        classes.append(
+            {
+                "day": WEEKDAY_MAP[wd],
+                "period": str(c.get("period", "")).strip(),
+                "subject": str(c.get("subject", "")).strip(),
+                "room": str(c.get("room", "")).strip(),
+            }
+        )
+    # Web 側で編集した時間割を優先する
+    user_data["classes"] = classes
+
+    # 既存の全授業に対する日付上書き（setday相当）
+    for d in payload.get("day_overrides") or []:
+        date_str = str(d.get("date", "")).strip()
+        wd = str(d.get("weekday", "")).strip()
+        if not date_str or wd not in WEEKDAY_MAP:
+            continue
+        wd_num = WEEKDAY_MAP[wd]
+        for cls in user_data.get("classes", []):
+            cls.setdefault("overrides", {})[date_str] = wd_num
+
+    # 指定時限への教室上書き（setroom相当）
+    for r in payload.get("room_overrides") or []:
+        date_str = str(r.get("date", "")).strip()
+        period = str(r.get("period", "")).strip()
+        room = str(r.get("room", "")).strip()
+        if not date_str or not period or not room:
+            continue
+        for cls in user_data.get("classes", []):
+            if str(cls.get("period")) == period:
+                cls.setdefault("room_overrides", {})[date_str] = room
+
+    # 通知設定
+    notify = payload.get("notify") or {}
+    user_data.setdefault("notify_settings", {})
+    user_data["notify_settings"]["normal"] = {
+        "first": int(notify.get("normal_first", 15)),
+        "second": int(notify.get("normal_second", 10)),
+    }
+    user_data["notify_settings"]["exam"] = {
+        "first": int(notify.get("exam_first", 30)),
+        "second": int(notify.get("exam_second", 25)),
+    }
+    user_data["morning_notice_time"] = str(notify.get("morning_time", "08:00"))
+
+    # 時限上書き
+    user_data["period_overrides"] = payload.get("period_overrides") or {}
+    user_data["exam_period_overrides"] = payload.get("exam_period_overrides") or {}
+
+    # 試験時間割（Web入力をそのまま優先）
+    schedules_out = []
+    for s in payload.get("exam_schedules") or []:
+        classes_out = []
+        for ec in s.get("classes") or []:
+            wd = str(ec.get("weekday", "")).strip()
+            if wd not in WEEKDAY_MAP:
+                continue
+            classes_out.append(
+                {
+                    "day": WEEKDAY_MAP[wd],
+                    "period": str(ec.get("period", "")).strip(),
+                    "time": ec.get("time"),
+                    "subject": str(ec.get("subject", "")).strip(),
+                    "room": str(ec.get("room", "")).strip(),
+                }
+            )
+        schedules_out.append(
+            {
+                "name": str(s.get("name", "")).strip(),
+                "start": str(s.get("start", "")).strip(),
+                "end": str(s.get("end", "")).strip(),
+                "classes": classes_out,
+            }
+        )
+    user_data["exam_schedules"] = schedules_out
+    return user_data
+
+
+async def _apply_gmail_auth_code_from_web(user_id: int, code: str) -> bool:
+    """Webで取得した Gmail OAuth code を利用してトークン保存する。"""
+    if not code:
+        return False
+    try:
+        flow = Flow.from_client_secrets_file(
+            GMAIL_CREDENTIALS,
+            scopes=["https://www.googleapis.com/auth/gmail.readonly"],
+            redirect_uri="https://ninigi05.github.io/oauth-redirect/",
+        )
+        flow.fetch_token(code=code)
+        creds = flow.credentials
+        token_dir = os.path.join(BASE_DIR, "gmail_tokens")
+        os.makedirs(token_dir, exist_ok=True)
+        token_file = os.path.join(token_dir, f"user_{user_id}.pickle")
+        with open(token_file, "wb") as token:
+            pickle.dump(creds, token)
+        return True
+    except Exception as e:
+        logger.warning(f"[WARN] Web経由の Gmail 認証反映失敗 user={user_id}: {e}")
+        return False
+
+
+web_group = app_commands.Group(name="web", description="Web登録データを取り込み")
+
+
+@web_group.command(name="applykey", description="Webで発行した連携キーを取り込みます")
+@app_commands.describe(key="Web画面で発行した連携キー")
+async def web_applykey(interaction: discord.Interaction, key: str):
+    await interaction.response.defer(ephemeral=True)
+    user_id = interaction.user.id
+    payload = consume_link_key((key or "").strip().upper())
+    if not payload:
+        await interaction.followup.send(
+            "キーが無効、または有効期限切れです。Web側で再発行してください。",
+            ephemeral=True,
+        )
+        return
+
+    try:
+        user_data = load_user_data(user_id)
+        user_data = _apply_web_payload_to_user_data(user_data, payload)
+        save_user_data(user_id, user_data)
+
+        gmail_ok = False
+        gmail_code = (payload.get("gmail_auth_code") or "").strip()
+        if gmail_code:
+            gmail_ok = await _apply_gmail_auth_code_from_web(user_id, gmail_code)
+
+        lines = [
+            "Web登録データを反映しました。",
+            f"- 授業数: {len(user_data.get('classes', []))}",
+            f"- 試験時間割数: {len(user_data.get('exam_schedules', []))}",
+            f"- Gmail認証反映: {'成功' if gmail_ok else ('未実施' if not gmail_code else '失敗')}",
+        ]
+        await send_dm(interaction.user, "\n".join(lines))
+        await interaction.followup.send(
+            "反映が完了しました。詳細をDMに送信しました。", ephemeral=True
+        )
+    except Exception as e:
+        logger.exception(f"[ERROR] web_applykey error: {e}")
+        await interaction.followup.send(
+            f"取り込み中にエラーが発生しました: {e}", ephemeral=True
+        )
+
+
 @mail_group.command(
     name="auth", description="Gmail 認証フローを開始します（DMでURL送付）"
 )
@@ -547,6 +714,7 @@ class ClassBot(commands.Bot):
 
         # mail グループ（Gmail認証・取得）
         self.tree.add_command(mail_group)
+        self.tree.add_command(web_group)
 
         # /help コマンド
         @self.tree.command(
@@ -629,6 +797,11 @@ class ClassBot(commands.Bot):
             )
             lines.append(
                 "• /mail fetch\n  → Gmailから最新の休講情報を取得して保存します\n"
+            )
+
+            lines.append("===  Web連携（/web） ===")
+            lines.append(
+                "• /web applykey key\n  → Web画面で登録した時間割・設定を取り込みます\n"
             )
 
             lines.append("===  注意事項 ===")

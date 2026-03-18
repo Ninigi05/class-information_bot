@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>試験時間割 登録</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen">
+  <main class="max-w-5xl mx-auto p-4 md:p-8 space-y-6">
+    <section class="bg-white rounded-2xl shadow border border-slate-200 p-5 md:p-7">
+      <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-extrabold">試験時間割 登録</h1>
+        <a href="./index.html" class="px-4 py-2 rounded bg-slate-700 text-white font-bold hover:bg-slate-800">通常ページへ戻る</a>
+      </div>
+      <p class="text-sm text-slate-600 mt-2">ここで入力した内容は通常ページのキー発行時にまとめて連携されます。</p>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow border border-slate-200 p-5 md:p-7 space-y-4">
+      <h2 class="text-lg font-bold">試験通知設定</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <label><span class="text-sm">試験前通知 1回目（分）</span><input id="examFirst" type="number" min="1" value="30" class="mt-1 w-full rounded border-slate-300" /></label>
+        <label><span class="text-sm">試験前通知 2回目（分）</span><input id="examSecond" type="number" min="1" value="25" class="mt-1 w-full rounded border-slate-300" /></label>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow border border-slate-200 p-5 md:p-7 space-y-4">
+      <h2 class="text-lg font-bold">試験時間割</h2>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+        <label><span class="text-sm">時間割名</span><input id="schedName" type="text" class="mt-1 w-full rounded border-slate-300" /></label>
+        <label><span class="text-sm">開始日</span><input id="schedStart" type="date" class="mt-1 w-full rounded border-slate-300" /></label>
+        <label><span class="text-sm">終了日</span><input id="schedEnd" type="date" class="mt-1 w-full rounded border-slate-300" /></label>
+        <button id="addSchedule" class="px-4 py-2 rounded bg-indigo-600 text-white font-bold hover:bg-indigo-700">時間割追加</button>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-7 gap-2 items-end">
+        <label><span class="text-sm">対象時間割</span><select id="targetSchedule" class="mt-1 w-full rounded border-slate-300"></select></label>
+        <label><span class="text-sm">曜日</span><select id="examWeekday" class="mt-1 w-full rounded border-slate-300"></select></label>
+        <label><span class="text-sm">時限</span><select id="examPeriod" class="mt-1 w-full rounded border-slate-300"></select></label>
+        <label><span class="text-sm">科目</span><input id="examSubject" type="text" class="mt-1 w-full rounded border-slate-300" /></label>
+        <label><span class="text-sm">教室</span><input id="examRoom" type="text" class="mt-1 w-full rounded border-slate-300" /></label>
+        <label><span class="text-sm">開始時刻(任意)</span><input id="examTime" type="time" class="mt-1 w-full rounded border-slate-300" /></label>
+        <button id="addExamClass" class="px-4 py-2 rounded bg-cyan-600 text-white font-bold hover:bg-cyan-700">授業追加</button>
+      </div>
+
+      <div id="examList" class="text-sm"></div>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow border border-slate-200 p-5 md:p-7 space-y-4">
+      <h2 class="text-lg font-bold">試験時限 開始時刻上書き</h2>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+        <label><span class="text-sm">時限</span><select id="examOvPeriod" class="mt-1 w-full rounded border-slate-300"></select></label>
+        <label><span class="text-sm">開始時刻</span><input id="examOvTime" type="time" class="mt-1 w-full rounded border-slate-300" /></label>
+        <button id="addExamOv" class="px-4 py-2 rounded bg-emerald-600 text-white font-bold hover:bg-emerald-700">上書き追加</button>
+      </div>
+      <div id="examOvList" class="text-sm"></div>
+    </section>
+  </main>
+
+  <script>
+    const STORAGE_KEY = "web_reg_draft_v2";
+    const weekdays = ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"];
+    const periods = ["1", "2", "3", "4", "5", "6"];
+    const draft = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null") || {
+      classes: [],
+      notify: { normal_first: 15, normal_second: 10, exam_first: 30, exam_second: 25, morning_time: "08:00" },
+      period_overrides: {},
+      day_overrides: [],
+      room_overrides: [],
+      exam_schedules: [],
+      exam_period_overrides: {},
+      gmail_auth_code: "",
+    };
+
+    const el = {
+      examFirst: document.getElementById("examFirst"),
+      examSecond: document.getElementById("examSecond"),
+      schedName: document.getElementById("schedName"),
+      schedStart: document.getElementById("schedStart"),
+      schedEnd: document.getElementById("schedEnd"),
+      addSchedule: document.getElementById("addSchedule"),
+      targetSchedule: document.getElementById("targetSchedule"),
+      examWeekday: document.getElementById("examWeekday"),
+      examPeriod: document.getElementById("examPeriod"),
+      examSubject: document.getElementById("examSubject"),
+      examRoom: document.getElementById("examRoom"),
+      examTime: document.getElementById("examTime"),
+      addExamClass: document.getElementById("addExamClass"),
+      examList: document.getElementById("examList"),
+      examOvPeriod: document.getElementById("examOvPeriod"),
+      examOvTime: document.getElementById("examOvTime"),
+      addExamOv: document.getElementById("addExamOv"),
+      examOvList: document.getElementById("examOvList"),
+    };
+
+    function save() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
+    }
+
+    function renderScheduleSelect() {
+      el.targetSchedule.innerHTML = draft.exam_schedules.map((s, i) => `<option value='${i}'>${escapeHtml(s.name)} (${s.start}〜${s.end})</option>`).join("");
+    }
+
+    function renderExamList() {
+      if (!draft.exam_schedules.length) {
+        el.examList.innerHTML = "<div class='text-slate-400'>時間割未登録</div>";
+        return;
+      }
+      el.examList.innerHTML = draft.exam_schedules.map((s, i) => {
+        const rows = (s.classes || []).map((c, j) => `${c.weekday} ${c.period}限 ${escapeHtml(c.subject)} (${escapeHtml(c.room)}) ${c.time || ""} <button class='text-rose-700 underline' data-rm-class='${i}:${j}'>削除</button>`).join("<br>");
+        return `<div class='border rounded p-3 mb-2'>
+          <div class='font-bold'>${escapeHtml(s.name)} (${s.start}〜${s.end}) <button class='text-rose-700 underline' data-rm-sched='${i}'>時間割削除</button></div>
+          <div class='text-sm mt-2'>${rows || "授業なし"}</div>
+        </div>`;
+      }).join("");
+      el.examList.querySelectorAll("button[data-rm-sched]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          draft.exam_schedules.splice(Number(btn.dataset.rmSched), 1);
+          save();
+          renderScheduleSelect();
+          renderExamList();
+        });
+      });
+      el.examList.querySelectorAll("button[data-rm-class]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const [si, ci] = btn.dataset.rmClass.split(":").map(Number);
+          draft.exam_schedules[si].classes.splice(ci, 1);
+          save();
+          renderExamList();
+        });
+      });
+    }
+
+    function renderExamOverrides() {
+      const keys = Object.keys(draft.exam_period_overrides || {});
+      el.examOvList.innerHTML = keys.length
+        ? keys.map(k => `${k}限 → ${draft.exam_period_overrides[k]} <button class='text-rose-700 underline' data-rm-ov='${k}'>削除</button>`).join("<br>")
+        : "<div class='text-slate-400'>未設定</div>";
+      el.examOvList.querySelectorAll("button[data-rm-ov]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          delete draft.exam_period_overrides[btn.dataset.rmOv];
+          save();
+          renderExamOverrides();
+        });
+      });
+    }
+
+    function escapeHtml(s) {
+      return String(s).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
+    }
+
+    weekdays.forEach(w => {
+      const o = document.createElement("option"); o.value = w; o.textContent = w; el.examWeekday.appendChild(o);
+    });
+    periods.forEach(p => {
+      const o1 = document.createElement("option"); o1.value = p; o1.textContent = `${p}限`; el.examPeriod.appendChild(o1);
+      const o2 = document.createElement("option"); o2.value = p; o2.textContent = `${p}限`; el.examOvPeriod.appendChild(o2);
+    });
+
+    el.examFirst.value = draft.notify?.exam_first ?? 30;
+    el.examSecond.value = draft.notify?.exam_second ?? 25;
+
+    el.examFirst.addEventListener("change", () => { draft.notify.exam_first = Number(el.examFirst.value || 30); save(); });
+    el.examSecond.addEventListener("change", () => { draft.notify.exam_second = Number(el.examSecond.value || 25); save(); });
+
+    el.addSchedule.addEventListener("click", () => {
+      const name = el.schedName.value.trim();
+      const start = el.schedStart.value;
+      const end = el.schedEnd.value;
+      if (!name || !start || !end) return;
+      draft.exam_schedules.push({ name, start, end, classes: [] });
+      save();
+      renderScheduleSelect();
+      renderExamList();
+    });
+
+    el.addExamClass.addEventListener("click", () => {
+      const idx = Number(el.targetSchedule.value);
+      const target = draft.exam_schedules[idx];
+      if (!target) return;
+      const subject = el.examSubject.value.trim();
+      const room = el.examRoom.value.trim();
+      if (!subject || !room) return;
+      target.classes.push({
+        weekday: el.examWeekday.value,
+        period: el.examPeriod.value,
+        subject,
+        room,
+        time: el.examTime.value || null,
+      });
+      save();
+      renderExamList();
+    });
+
+    el.addExamOv.addEventListener("click", () => {
+      if (!el.examOvPeriod.value || !el.examOvTime.value) return;
+      draft.exam_period_overrides[el.examOvPeriod.value] = el.examOvTime.value;
+      save();
+      renderExamOverrides();
+    });
+
+    renderScheduleSelect();
+    renderExamList();
+    renderExamOverrides();
+  </script>
+</body>
+</html>
