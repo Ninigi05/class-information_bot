@@ -66,6 +66,7 @@ def _build_cors_origin_regex() -> str:
         return user_regex
     return DEFAULT_CORS_REGEX
 
+
 # 空の文字列を除外し重複を除去
 CORS_ORIGINS = list(
     dict.fromkeys(
@@ -203,7 +204,13 @@ async def upsert_user_class(
 
         user_data["classes"] = classes
         save_user_data(user_id, user_data)
-        logger.info("授業 upsert: user_id=%s weekday=%s period=%s action=%s", user_id, payload.weekday, payload.period, action)
+        logger.info(
+            "授業 upsert: user_id=%s weekday=%s period=%s action=%s",
+            user_id,
+            payload.weekday,
+            payload.period,
+            action,
+        )
 
         return {
             "ok": True,
@@ -243,7 +250,9 @@ async def delete_user_class(
         removed = classes.pop(idx)
         user_data["classes"] = classes
         save_user_data(user_id, user_data)
-        logger.info("授業 delete: user_id=%s weekday=%s period=%s", user_id, weekday, period)
+        logger.info(
+            "授業 delete: user_id=%s weekday=%s period=%s", user_id, weekday, period
+        )
 
         return {
             "ok": True,

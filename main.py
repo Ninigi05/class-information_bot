@@ -694,7 +694,9 @@ if __name__ == "__main__":
     # Web API サーバーをスレッドで起動（Discord Bot と並行実行）
     web_port = int(os.getenv("WEB_PORT", "8000"))
     web_host = os.getenv("WEB_HOST", "0.0.0.0")
-    tunnel_public_base_url = (os.getenv("TUNNEL_PUBLIC_BASE_URL") or "").strip().rstrip("/")
+    tunnel_public_base_url = (
+        (os.getenv("TUNNEL_PUBLIC_BASE_URL") or "").strip().rstrip("/")
+    )
     github_pages_url = (os.getenv("GITHUB_PAGES_URL") or "").strip().rstrip("/")
     logger.info(f"Web API サーバーを起動します: {web_host}:{web_port}")
 

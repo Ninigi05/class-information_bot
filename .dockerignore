@@ -1,0 +1,12 @@
+.git
+.gitignore
+.vscode
+.venv
+__pycache__
+.mypy_cache
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.zip
+*.pdf

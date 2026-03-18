@@ -1,0 +1,16 @@
+services:
+  class-information-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: class-information-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    # main.py が WEB_PORT(既定 8000) で FastAPI を起動するため公開
+    ports:
+      - "8000:8000"
+    # ユーザーデータ JSON / logs / gmail_tokens などを永続化
+    volumes:
+      - ./:/app
+    command: ["python", "main.py"]
