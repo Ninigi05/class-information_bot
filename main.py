@@ -877,7 +877,7 @@ if __name__ == "__main__":
         logger.info(f"[INFO] Tunnel URL: {tunnel_public_base_url}")
     if tunnel_public_base_url and github_pages_url:
         logger.info(
-            f"[INFO] GitHub Pages 接続URL: {github_pages_url}/?api={tunnel_public_base_url}"
+            f"[INFO] GitHub Pages URL: {github_pages_url}"
         )
 
     try:

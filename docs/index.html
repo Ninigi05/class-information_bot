@@ -88,9 +88,8 @@
   </dialog>
 
   <script>
-    const DEFAULT_BACKEND = "https://inter-movies-relations-reporter.trycloudflare.com";
+    const BACKEND = "https://technique-lol-fishing-shell.trycloudflare.com";
     const STORAGE_KEY = "web_reg_draft_v2";
-    const API_BASE_STORAGE_KEY = "web_api_base_url";
     const weekdays = ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"];
     const periods = ["1", "2", "3", "4", "5", "6"];
 
@@ -134,18 +133,6 @@
     };
 
     let editing = null;
-
-    function resolveBackendBase() {
-      const params = new URLSearchParams(window.location.search);
-      const apiFromQuery = (params.get("api") || "").trim();
-      const apiFromStorage = (localStorage.getItem(API_BASE_STORAGE_KEY) || "").trim();
-      const chosen = apiFromQuery || apiFromStorage || DEFAULT_BACKEND;
-      const normalized = chosen.replace(/\/+$/, "");
-      if (apiFromQuery) localStorage.setItem(API_BASE_STORAGE_KEY, normalized);
-      return normalized;
-    }
-
-    const BACKEND = resolveBackendBase();
 
     function persist() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
