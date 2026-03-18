@@ -33,15 +33,15 @@
         <button type="button" id="addSchedule" class="px-4 py-2 rounded bg-indigo-600 text-white font-bold hover:bg-indigo-700">時間割追加</button>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-7 gap-2 items-end">
-        <label><span class="text-sm">対象時間割</span><select id="targetSchedule" class="mt-1 w-full rounded border-slate-300"></select></label>
-        <label><span class="text-sm">曜日</span><select id="examWeekday" class="mt-1 w-full rounded border-slate-300"></select></label>
-        <label><span class="text-sm">時限</span><select id="examPeriod" class="mt-1 w-full rounded border-slate-300"></select></label>
-        <label><span class="text-sm">科目</span><input id="examSubject" type="text" class="mt-1 w-full rounded border-slate-300" /></label>
-        <label><span class="text-sm">教室</span><input id="examRoom" type="text" class="mt-1 w-full rounded border-slate-300" /></label>
-        <label><span class="text-sm">開始時刻(任意)</span><input id="examTime" type="time" class="mt-1 w-full rounded border-slate-300" /></label>
-        <button type="button" id="addExamClass" class="px-4 py-2 rounded bg-cyan-600 text-white font-bold hover:bg-cyan-700">授業追加</button>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+        <label class="md:col-span-3"><span class="text-sm">対象時間割</span><select id="targetSchedule" class="mt-1 w-full rounded border-slate-300"></select></label>
+        <button type="button" id="removeSchedule" class="px-4 py-2 rounded bg-rose-600 text-white font-bold hover:bg-rose-700">選択中の時間割を削除</button>
       </div>
+
+      <div class="overflow-x-auto">
+        <table id="examTimetable" class="min-w-full border border-slate-300"></table>
+      </div>
+      <p class="text-xs text-slate-500">セルクリックで授業追加/編集（通常時間割ページと同じ操作）</p>
 
       <div id="examList" class="text-sm"></div>
     </section>
@@ -56,6 +56,23 @@
       <div id="examOvList" class="text-sm"></div>
     </section>
   </main>
+
+  <dialog id="examClassDialog" class="rounded-xl p-0 w-[min(92vw,460px)] backdrop:bg-slate-900/30">
+    <form method="dialog" class="p-0">
+      <div class="px-5 py-4 border-b bg-slate-50"><h3 class="text-lg font-bold" id="examDialogTitle">試験授業編集</h3></div>
+      <div class="p-5 space-y-3">
+        <p id="examDialogSlot" class="text-sm text-slate-600"></p>
+        <label class="block"><span class="text-sm">科目名</span><input id="dlgExamSubject" type="text" class="mt-1 w-full rounded border-slate-300" /></label>
+        <label class="block"><span class="text-sm">教室</span><input id="dlgExamRoom" type="text" class="mt-1 w-full rounded border-slate-300" /></label>
+        <label class="block"><span class="text-sm">開始時刻（任意）</span><input id="dlgExamTime" type="time" class="mt-1 w-full rounded border-slate-300" /></label>
+      </div>
+      <div class="px-5 py-4 border-t bg-slate-50 flex justify-end gap-2">
+        <button type="button" id="dlgExamDelete" class="px-3 py-2 rounded bg-rose-100 text-rose-700 font-bold">削除</button>
+        <button type="button" id="dlgExamClose" class="px-3 py-2 rounded bg-slate-200 font-bold">閉じる</button>
+        <button type="button" id="dlgExamSave" class="px-3 py-2 rounded bg-cyan-600 text-white font-bold">保存</button>
+      </div>
+    </form>
+  </dialog>
 
   <script>
     const STORAGE_KEY = "web_reg_draft_v2";
@@ -80,18 +97,25 @@
       schedEnd: document.getElementById("schedEnd"),
       addSchedule: document.getElementById("addSchedule"),
       targetSchedule: document.getElementById("targetSchedule"),
-      examWeekday: document.getElementById("examWeekday"),
-      examPeriod: document.getElementById("examPeriod"),
-      examSubject: document.getElementById("examSubject"),
-      examRoom: document.getElementById("examRoom"),
-      examTime: document.getElementById("examTime"),
-      addExamClass: document.getElementById("addExamClass"),
+      removeSchedule: document.getElementById("removeSchedule"),
+      examTimetable: document.getElementById("examTimetable"),
       examList: document.getElementById("examList"),
       examOvPeriod: document.getElementById("examOvPeriod"),
       examOvTime: document.getElementById("examOvTime"),
       addExamOv: document.getElementById("addExamOv"),
       examOvList: document.getElementById("examOvList"),
+      examClassDialog: document.getElementById("examClassDialog"),
+      examDialogTitle: document.getElementById("examDialogTitle"),
+      examDialogSlot: document.getElementById("examDialogSlot"),
+      dlgExamSubject: document.getElementById("dlgExamSubject"),
+      dlgExamRoom: document.getElementById("dlgExamRoom"),
+      dlgExamTime: document.getElementById("dlgExamTime"),
+      dlgExamSave: document.getElementById("dlgExamSave"),
+      dlgExamDelete: document.getElementById("dlgExamDelete"),
+      dlgExamClose: document.getElementById("dlgExamClose"),
     };
+
+    let editing = null;
 
     function save() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
@@ -114,7 +138,83 @@
     }
 
     function renderScheduleSelect() {
-      el.targetSchedule.innerHTML = draft.exam_schedules.map((s, i) => `<option value='${i}'>${escapeHtml(s.name)} (${s.start}〜${s.end})</option>`).join("");
+      if (!draft.exam_schedules.length) {
+        el.targetSchedule.innerHTML = "<option value=''>時間割を作成してください</option>";
+        return;
+      }
+      el.targetSchedule.innerHTML = draft.exam_schedules
+        .map((s, i) => `<option value='${i}'>${escapeHtml(s.name)} (${s.start}〜${s.end})</option>`)
+        .join("");
+    }
+
+    function selectedSchedule() {
+      const idx = Number(el.targetSchedule.value);
+      if (Number.isNaN(idx) || idx < 0) return null;
+      return draft.exam_schedules[idx] || null;
+    }
+
+    function classAt(schedule, weekday, period) {
+      return (schedule?.classes || []).find(c => c.weekday === weekday && String(c.period) === String(period)) || null;
+    }
+
+    function setExamClass(schedule, weekday, period, subject, room, time) {
+      schedule.classes = (schedule.classes || []).filter(c => !(c.weekday === weekday && String(c.period) === String(period)));
+      if (subject && room) {
+        schedule.classes.push({
+          weekday,
+          period: String(period),
+          subject,
+          room,
+          time: time || null,
+        });
+      }
+      save();
+      renderExamTimetable();
+      renderExamList();
+    }
+
+    function renderExamTimetable() {
+      const schedule = selectedSchedule();
+      if (!schedule) {
+        el.examTimetable.innerHTML = "<tbody><tr><td class='border p-3 text-slate-400'>時間割を作成してください</td></tr></tbody>";
+        return;
+      }
+      let html = "<thead><tr><th class='border p-2 bg-slate-100'>時限</th>";
+      for (const w of weekdays) html += `<th class='border p-2 bg-slate-100'>${w}</th>`;
+      html += "</tr></thead><tbody>";
+      for (const p of periods) {
+        html += `<tr><td class='border p-2 bg-slate-50 text-center font-bold'>${p}限</td>`;
+        for (const w of weekdays) {
+          const c = classAt(schedule, w, p);
+          const timeLabel = c?.time ? `<div class='text-[11px] text-cyan-700'>${escapeHtml(c.time)}</div>` : "";
+          html += `<td class='border p-1'>
+            <button type='button' class='w-full min-h-[66px] text-left rounded ${c ? "bg-cyan-50 hover:bg-cyan-100 border border-cyan-200" : "bg-white hover:bg-slate-50 border border-dashed border-slate-300"}' data-weekday='${w}' data-period='${p}'>
+              ${c ? `<div class='font-bold text-cyan-900 text-sm'>${escapeHtml(c.subject)}</div><div class='text-xs text-cyan-700'>${escapeHtml(c.room)}</div>${timeLabel}` : "<div class='text-xs text-slate-400'>追加</div>"}
+            </button>
+          </td>`;
+        }
+        html += "</tr>";
+      }
+      html += "</tbody>";
+      el.examTimetable.innerHTML = html;
+      el.examTimetable.querySelectorAll("button[data-weekday]").forEach(btn => {
+        btn.addEventListener("click", () => openExamDialog(btn.dataset.weekday, btn.dataset.period));
+      });
+    }
+
+    function openExamDialog(weekday, period) {
+      const schedule = selectedSchedule();
+      if (!schedule) return;
+      const cur = classAt(schedule, weekday, period);
+      editing = { weekday, period };
+      el.examDialogTitle.textContent = cur ? "試験授業編集" : "試験授業追加";
+      el.examDialogSlot.textContent = `${schedule.name} / ${weekday} ${period}限`;
+      el.dlgExamSubject.value = cur?.subject || "";
+      el.dlgExamRoom.value = cur?.room || "";
+      el.dlgExamTime.value = cur?.time || "";
+      el.dlgExamDelete.style.display = cur ? "inline-block" : "none";
+      el.examClassDialog.showModal();
+      el.dlgExamSubject.focus();
     }
 
     function renderExamList() {
@@ -123,25 +223,18 @@
         return;
       }
       el.examList.innerHTML = draft.exam_schedules.map((s, i) => {
-        const rows = (s.classes || []).map((c, j) => `${c.weekday} ${c.period}限 ${escapeHtml(c.subject)} (${escapeHtml(c.room)}) ${c.time || ""} <button class='text-rose-700 underline' data-rm-class='${i}:${j}'>削除</button>`).join("<br>");
+        const rows = (s.classes || []).map((c, j) => `${c.weekday} ${c.period}限 ${escapeHtml(c.subject)} (${escapeHtml(c.room)}) ${c.time || ""} <button type='button' class='text-rose-700 underline' data-rm-class='${i}:${j}'>削除</button>`).join("<br>");
         return `<div class='border rounded p-3 mb-2'>
-          <div class='font-bold'>${escapeHtml(s.name)} (${s.start}〜${s.end}) <button class='text-rose-700 underline' data-rm-sched='${i}'>時間割削除</button></div>
+          <div class='font-bold'>${escapeHtml(s.name)} (${s.start}〜${s.end})</div>
           <div class='text-sm mt-2'>${rows || "授業なし"}</div>
         </div>`;
       }).join("");
-      el.examList.querySelectorAll("button[data-rm-sched]").forEach(btn => {
-        btn.addEventListener("click", () => {
-          draft.exam_schedules.splice(Number(btn.dataset.rmSched), 1);
-          save();
-          renderScheduleSelect();
-          renderExamList();
-        });
-      });
       el.examList.querySelectorAll("button[data-rm-class]").forEach(btn => {
         btn.addEventListener("click", () => {
           const [si, ci] = btn.dataset.rmClass.split(":").map(Number);
           draft.exam_schedules[si].classes.splice(ci, 1);
           save();
+          renderExamTimetable();
           renderExamList();
         });
       });
@@ -165,11 +258,7 @@
       return String(s).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
     }
 
-    weekdays.forEach(w => {
-      const o = document.createElement("option"); o.value = w; o.textContent = w; el.examWeekday.appendChild(o);
-    });
     periods.forEach(p => {
-      const o1 = document.createElement("option"); o1.value = p; o1.textContent = `${p}限`; el.examPeriod.appendChild(o1);
       const o2 = document.createElement("option"); o2.value = p; o2.textContent = `${p}限`; el.examOvPeriod.appendChild(o2);
     });
 
@@ -187,25 +276,43 @@
       draft.exam_schedules.push({ name, start, end, classes: [] });
       save();
       renderScheduleSelect();
+      el.targetSchedule.value = String(draft.exam_schedules.length - 1);
+      renderExamTimetable();
       renderExamList();
     });
 
-    el.addExamClass.addEventListener("click", () => {
+    el.removeSchedule.addEventListener("click", () => {
       const idx = Number(el.targetSchedule.value);
-      const target = draft.exam_schedules[idx];
-      if (!target) return;
-      const subject = el.examSubject.value.trim();
-      const room = el.examRoom.value.trim();
-      if (!subject || !room) return;
-      target.classes.push({
-        weekday: el.examWeekday.value,
-        period: el.examPeriod.value,
-        subject,
-        room,
-        time: el.examTime.value || null,
-      });
+      if (Number.isNaN(idx) || idx < 0 || !draft.exam_schedules[idx]) return;
+      draft.exam_schedules.splice(idx, 1);
       save();
+      renderScheduleSelect();
+      renderExamTimetable();
       renderExamList();
+    });
+
+    el.targetSchedule.addEventListener("change", () => {
+      renderExamTimetable();
+    });
+
+    el.dlgExamSave.addEventListener("click", () => {
+      const schedule = selectedSchedule();
+      if (!editing || !schedule) return;
+      const subject = el.dlgExamSubject.value.trim();
+      const room = el.dlgExamRoom.value.trim();
+      setExamClass(schedule, editing.weekday, editing.period, subject, room, el.dlgExamTime.value || null);
+      el.examClassDialog.close();
+    });
+
+    el.dlgExamDelete.addEventListener("click", () => {
+      const schedule = selectedSchedule();
+      if (!editing || !schedule) return;
+      setExamClass(schedule, editing.weekday, editing.period, "", "", null);
+      el.examClassDialog.close();
+    });
+
+    el.dlgExamClose.addEventListener("click", () => {
+      el.examClassDialog.close();
     });
 
     el.addExamOv.addEventListener("click", () => {
@@ -222,13 +329,11 @@
       save();
     });
     wireEnterFlow([el.schedName, el.schedStart, el.schedEnd], () => el.addSchedule.click());
-    wireEnterFlow(
-      [el.targetSchedule, el.examWeekday, el.examPeriod, el.examSubject, el.examRoom, el.examTime],
-      () => el.addExamClass.click()
-    );
     wireEnterFlow([el.examOvPeriod, el.examOvTime], () => el.addExamOv.click());
+    wireEnterFlow([el.dlgExamSubject, el.dlgExamRoom, el.dlgExamTime], () => el.dlgExamSave.click());
 
     renderScheduleSelect();
+    renderExamTimetable();
     renderExamList();
     renderExamOverrides();
   </script>

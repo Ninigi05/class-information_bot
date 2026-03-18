@@ -1,9 +1,9 @@
 import os
+import re
 import discord
 from discord import app_commands
 from discord.ext import commands
 from datetime import datetime
-import pandas as pd
 import matplotlib.pyplot as plt
 import japanize_matplotlib
 from utils import (
@@ -85,6 +85,71 @@ class ClassCog(commands.GroupCog, name="class"):
                 if len(choices) >= 25:
                     break
         return choices
+
+    @staticmethod
+    def _tokenize_subject(text: str) -> list[str]:
+        normalized = re.sub(r"[\t\r\n]+", " ", str(text or "").strip())
+        if not normalized:
+            return []
+        chunks = re.split(r"[\s/・,，、()\[\]{}]+", normalized)
+        return [x for x in chunks if x]
+
+    @staticmethod
+    def _wrap_tokens(tokens: list[str], max_chars: int) -> list[str]:
+        lines: list[str] = []
+        current = ""
+        for token in tokens:
+            if len(token) > max_chars:
+                if current:
+                    lines.append(current)
+                    current = ""
+                for i in range(0, len(token), max_chars):
+                    lines.append(token[i : i + max_chars])
+                continue
+
+            merged = token if not current else f"{current} {token}"
+            if len(merged) <= max_chars:
+                current = merged
+            else:
+                lines.append(current)
+                current = token
+        if current:
+            lines.append(current)
+        return lines
+
+    @classmethod
+    def _wrap_subject(cls, subject: str, max_chars: int = 10, max_lines: int = 4) -> list[str]:
+        tokens = cls._tokenize_subject(subject)
+        if not tokens:
+            return [""]
+        lines = cls._wrap_tokens(tokens, max_chars)
+        if len(lines) <= max_lines:
+            return lines
+        trimmed = lines[:max_lines]
+        if len(trimmed[-1]) >= max_chars:
+            trimmed[-1] = trimmed[-1][: max_chars - 1] + "…"
+        else:
+            trimmed[-1] = trimmed[-1] + "…"
+        return trimmed
+
+    @classmethod
+    def _cell_label(cls, slot_classes: list[dict]) -> str:
+        if not slot_classes:
+            return "-"
+
+        blocks: list[str] = []
+        for c in slot_classes[:2]:
+            subject = str(c.get("subject", "")).strip()
+            room = str(c.get("room", "")).strip()
+            subject_lines = cls._wrap_subject(subject, max_chars=10, max_lines=4)
+            room_lines = cls._wrap_subject(room, max_chars=12, max_lines=2)
+            block = "\n".join(subject_lines + room_lines)
+            blocks.append(block)
+
+        text = "\n\n".join(blocks)
+        if len(slot_classes) > 2:
+            text += "\n(+more)"
+        return text
 
     @app_commands.command(
         name="table", description="授業一覧を時間割表形式で表示します"
@@ -207,35 +272,62 @@ class ClassCog(commands.GroupCog, name="class"):
             )
             return
 
-        rows = []
+        periods_sorted = sorted(
+            [str(p) for p in PERIOD_TO_TIME.keys()],
+            key=lambda x: int(x) if str(x).isdigit() else 999,
+        )
+        grid: dict[tuple[int, str], list[dict]] = {}
         for c in classes:
-            rows.append(
-                {
-                    "day_idx": c.get("day"),
-                    "曜日": WEEKDAYS[c.get("day")],
-                    "時限": c.get("period"),
-                    "授業名": c.get("subject"),
-                    "教室": c.get("room"),
-                }
-            )
+            try:
+                day = int(c.get("day"))
+            except Exception:
+                continue
+            period = str(c.get("period", "")).strip()
+            if day < 0 or day >= len(WEEKDAYS) or period not in periods_sorted:
+                continue
+            grid.setdefault((day, period), []).append(c)
 
-        df = pd.DataFrame(rows)
-        df["時限"] = pd.to_numeric(df["時限"], errors="coerce")
-        df = df.sort_values(["day_idx", "時限"])
-        df = df.drop(columns=["day_idx"])
+        cell_text = []
+        for period in periods_sorted:
+            row = []
+            for day_idx in range(len(WEEKDAYS)):
+                row.append(self._cell_label(grid.get((day_idx, period), [])))
+            cell_text.append(row)
 
-        plt.figure(figsize=(8, max(2, len(df) * 0.4)))
-        plt.axis("off")
+        fig_height = max(5.5, 1.5 + len(periods_sorted) * 1.45)
+        fig, ax = plt.subplots(figsize=(15.5, fig_height))
+        ax.axis("off")
 
-        tbl = plt.table(cellText=df.values, colLabels=df.columns, loc="center")
+        tbl = ax.table(
+            cellText=cell_text,
+            colLabels=WEEKDAYS,
+            rowLabels=[f"{p}限" for p in periods_sorted],
+            cellLoc="center",
+            loc="center",
+        )
 
         tbl.auto_set_font_size(False)
-        tbl.set_fontsize(10)
-        tbl.scale(1, 1.4)
+        tbl.set_fontsize(9)
+        tbl.scale(1.0, 2.25)
+
+        for (r, c), cell in tbl.get_celld().items():
+            cell.set_edgecolor("#475569")
+            cell.set_linewidth(1.0)
+            text = cell.get_text()
+            text.set_wrap(True)
+            text.set_multialignment("center")
+            if r == 0 or c == -1:
+                cell.set_facecolor("#e2e8f0")
+                text.set_fontweight("bold")
+                text.set_color("#0f172a")
+                text.set_fontsize(10)
+            else:
+                cell.set_facecolor("#f8fafc")
+                text.set_color("#0f172a")
 
         img_path = f"class_list_{interaction.user.id}.png"
-        plt.savefig(img_path, bbox_inches="tight")
-        plt.close()
+        fig.savefig(img_path, bbox_inches="tight", dpi=220)
+        plt.close(fig)
 
         try:
             await interaction.user.send(
