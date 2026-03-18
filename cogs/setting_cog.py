@@ -4,6 +4,7 @@ from discord.ext import commands
 import re
 from utils import load_user_data, save_user_data, PERIOD_TO_TIME, DEFAULT_NOTIFY
 
+
 class SettingCog(commands.GroupCog, name="setting"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -16,22 +17,25 @@ class SettingCog(commands.GroupCog, name="setting"):
             if current in p
         ]
 
-    async def reset_period_autocomplete(self, interaction: discord.Interaction, current: str):
+    async def reset_period_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ):
         options = list(PERIOD_TO_TIME.keys()) + ["all"]
-        return [
-            app_commands.Choice(name=p, value=p)
-            for p in options
-            if current in p
-        ]
+        return [app_commands.Choice(name=p, value=p) for p in options if current in p]
 
-    @app_commands.command(name="period_time", description="各時限の開始時刻を登録します（例：1限 → 09:00）")
+    @app_commands.command(
+        name="period_time",
+        description="各時限の開始時刻を登録します（例：1限 → 09:00）",
+    )
     @app_commands.describe(period="設定する時限（例：1）", time="開始時刻（例：09:00）")
     @app_commands.autocomplete(period=period_autocomplete)
-    async def set_period_time(self, interaction: discord.Interaction, period: str, time: str):
+    async def set_period_time(
+        self, interaction: discord.Interaction, period: str, time: str
+    ):
         if not re.match(r"^(2[0-3]|[01]?\d):[0-5]\d$", time):
             await interaction.response.send_message(
                 "時刻は「HH:MM」の形式で入力してください（例：09:00）。時刻は0〜23時：0〜59分で入力してください。",
-                ephemeral=True
+                ephemeral=True,
             )
             return
 
@@ -41,8 +45,7 @@ class SettingCog(commands.GroupCog, name="setting"):
         save_user_data(user_id, data)
 
         await interaction.response.send_message(
-            f"{period}限の開始時刻を {time} に設定しました。",
-            ephemeral=True
+            f"{period}限の開始時刻を {time} に設定しました。", ephemeral=True
         )
 
     @app_commands.command(name="show", description="現在の時限設定を表示します（DM）")
@@ -67,19 +70,27 @@ class SettingCog(commands.GroupCog, name="setting"):
                 lines.append(f"  {p}限: {default}（デフォルト）")
 
         lines.append("\n【通知タイミング】")
-        lines.append(f"  通常授業: {normal_cfg.get('first')}分前 / {normal_cfg.get('second')}分前")
-        lines.append(f"  試験期間: {exam_cfg.get('first')}分前 / {exam_cfg.get('second')}分前")
+        lines.append(
+            f"  通常授業: {normal_cfg.get('first')}分前 / {normal_cfg.get('second')}分前"
+        )
+        lines.append(
+            f"  試験期間: {exam_cfg.get('first')}分前 / {exam_cfg.get('second')}分前"
+        )
 
         try:
             dm = await interaction.user.create_dm()
             await dm.send("\n".join(lines))
         except Exception as e:
-            await interaction.followup.send(f"DM送信に失敗しました: {e}", ephemeral=True)
+            await interaction.followup.send(
+                f"DM送信に失敗しました: {e}", ephemeral=True
+            )
             return
 
         await interaction.followup.send("設定内容をDMで送信しました。", ephemeral=True)
 
-    @app_commands.command(name="reset_period", description="時限の開始時刻をデフォルトに戻します")
+    @app_commands.command(
+        name="reset_period", description="時限の開始時刻をデフォルトに戻します"
+    )
     @app_commands.describe(period="リセットする時限（例：1）、all で全てリセット")
     @app_commands.autocomplete(period=reset_period_autocomplete)
     async def reset_period_time(self, interaction: discord.Interaction, period: str):
@@ -91,15 +102,13 @@ class SettingCog(commands.GroupCog, name="setting"):
             data["period_overrides"] = {}
             save_user_data(user_id, data)
             await interaction.response.send_message(
-                "全時限の開始時刻をデフォルトにリセットしました。",
-                ephemeral=True
+                "全時限の開始時刻をデフォルトにリセットしました。", ephemeral=True
             )
             return
 
         if period not in overrides:
             await interaction.response.send_message(
-                f"{period}限にはカスタム設定がありません。",
-                ephemeral=True
+                f"{period}限にはカスタム設定がありません。", ephemeral=True
             )
             return
 
@@ -108,7 +117,7 @@ class SettingCog(commands.GroupCog, name="setting"):
         save_user_data(user_id, data)
         await interaction.response.send_message(
             f"{period}限の開始時刻をデフォルト（{PERIOD_TO_TIME.get(period, '不明')}）にリセットしました。",
-            ephemeral=True
+            ephemeral=True,
         )
 
 
