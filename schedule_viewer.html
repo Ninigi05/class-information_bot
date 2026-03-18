@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>授業情報Bot - 時間割ビューアー</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .settings {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            border-left: 4px solid #667eea;
+        }
+
+        .settings-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .form-group label {
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #333;
+            font-size: 14px;
+        }
+
+        .form-group input,
+        .form-group select {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            font-family: monospace;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-primary:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: #e0e0e0;
+            color: #333;
+        }
+
+        .btn-secondary:hover {
+            background: #d0d0d0;
+        }
+
+        .schedule-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .schedule-table thead {
+            background: #f8f9fa;
+        }
+
+        .schedule-table th,
+        .schedule-table td {
+            padding: 15px;
+            text-align: center;
+            border: 1px solid #eee;
+        }
+
+        .schedule-table th {
+            background: #667eea;
+            color: white;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        .schedule-table tbody tr:hover {
+            background: #f8f9fa;
+        }
+
+        .class-cell {
+            background: #e8f0fe;
+            border-radius: 4px;
+            padding: 10px;
+            min-height: 60px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .class-cell:hover {
+            background: #d2e3fc;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+        }
+
+        .class-cell.empty {
+            background: white;
+            cursor: default;
+        }
+
+        .class-name {
+            font-weight: 600;
+            color: #1a73e8;
+            margin-bottom: 3px;
+        }
+
+        .class-room {
+            font-size: 11px;
+            color: #666;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #667eea;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            border-left: 4px solid #c33;
+        }
+
+        .success {
+            background: #efe;
+            color: #3c3;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            border-left: 4px solid #3c3;
+        }
+
+        .info {
+            background: #eef;
+            color: #33c;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            border-left: 4px solid #33c;
+            font-size: 13px;
+        }
+
+        @media (max-width: 768px) {
+            .settings-group {
+                grid-template-columns: 1fr;
+            }
+
+            .schedule-table {
+                font-size: 12px;
+            }
+
+            .schedule-table th,
+            .schedule-table td {
+                padding: 8px;
+            }
+
+            .header h1 {
+                font-size: 20px;
+            }
+
+            .content {
+                padding: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📚 授業情報Bot - 時間割ビューアー</h1>
+            <p>自分のPC で実行されている API から時間割データを取得します</p>
+        </div>
+
+        <div class="content">
+            <!-- エラー/成功メッセージ -->
+            <div id="messages"></div>
+
+            <!-- 設定パネル -->
+            <div class="settings">
+                <div class="settings-group">
+                    <div class="form-group">
+                        <label for="apiBaseUrl">API ベースURL:</label>
+                        <input 
+                            type="text" 
+                            id="apiBaseUrl" 
+                            placeholder="http://localhost:8000"
+                            value="http://localhost:8000"
+                        >
+                    </div>
+                    <div class="form-group">
+                        <label for="apiKey">API_KEY:</label>
+                        <input 
+                            type="password" 
+                            id="apiKey" 
+                            placeholder="your-api-key-here"
+                        >
+                    </div>
+                    <div class="form-group">
+                        <label for="userId">Discord ユーザーID:</label>
+                        <input 
+                            type="text" 
+                            id="userId" 
+                            placeholder="あなたのユーザーID"
+                        >
+                    </div>
+                </div>
+
+                <div class="button-group">
+                    <button class="btn-primary" onclick="loadSchedule()">
+                        📥 時間割を読み込み
+                    </button>
+                    <button class="btn-secondary" onclick="resetForm()">
+                        🔄 リセット
+                    </button>
+                </div>
+
+                <div class="info" style="margin-top: 15px;">
+                    💡 <strong>使い方:</strong> 上記の情報を入力して「時間割を読み込み」ボタンを押すと、
+                    あなたのアカウントの時間割が表示されます。
+                </div>
+            </div>
+
+            <!-- 時間割テーブル -->
+            <div id="scheduleContainer" style="display: none;">
+                <h2 style="margin-bottom: 15px; color: #333;">📅 時間割表</h2>
+                <div id="scheduleContent"></div>
+            </div>
+
+            <!-- ローディング -->
+            <div id="loadingContainer" style="display: none;">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <p>時間割を読み込み中...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_KEY_STORAGE = 'schedule_viewer_api_key';
+        const USER_ID_STORAGE = 'schedule_viewer_user_id';
+        const API_URL_STORAGE = 'schedule_viewer_api_url';
+
+        // ページ読み込み時に保存された設定を復元
+        window.addEventListener('DOMContentLoaded', () => {
+            const savedApiKey = localStorage.getItem(API_KEY_STORAGE);
+            const savedUserId = localStorage.getItem(USER_ID_STORAGE);
+            const savedApiUrl = localStorage.getItem(API_URL_STORAGE);
+
+            if (savedApiKey) document.getElementById('apiKey').value = savedApiKey;
+            if (savedUserId) document.getElementById('userId').value = savedUserId;
+            if (savedApiUrl) document.getElementById('apiBaseUrl').value = savedApiUrl;
+        });
+
+        function showMessage(message, type = 'info') {
+            const container = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = type;
+            messageDiv.textContent = message;
+            container.appendChild(messageDiv);
+
+            // 5秒後に自動削除
+            setTimeout(() => {
+                messageDiv.remove();
+            }, 5000);
+        }
+
+        async function loadSchedule() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const userId = document.getElementById('userId').value.trim();
+            const apiBaseUrl = document.getElementById('apiBaseUrl').value.trim();
+
+            // バリデーション
+            if (!apiKey) {
+                showMessage('❌ API_KEY を入力してください', 'error');
+                return;
+            }
+
+            if (!userId) {
+                showMessage('❌ Discord ユーザーID を入力してください', 'error');
+                return;
+            }
+
+            if (!apiBaseUrl) {
+                showMessage('❌ API ベースURL を入力してください', 'error');
+                return;
+            }
+
+            // 設定を保存
+            localStorage.setItem(API_KEY_STORAGE, apiKey);
+            localStorage.setItem(USER_ID_STORAGE, userId);
+            localStorage.setItem(API_URL_STORAGE, apiBaseUrl);
+
+            // ローディング表示
+            document.getElementById('loadingContainer').style.display = 'block';
+            document.getElementById('scheduleContainer').style.display = 'none';
+
+            try {
+                const url = `${apiBaseUrl}/api/user/${userId}/schedule-table`;
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'X-API-Key': apiKey,
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || `エラー: ${response.status}`);
+                }
+
+                const data = await response.json();
+                displaySchedule(data);
+                showMessage('✅ 時間割を読み込みました', 'success');
+
+            } catch (error) {
+                console.error('エラー:', error);
+                showMessage(`❌ ${error.message}`, 'error');
+            } finally {
+                document.getElementById('loadingContainer').style.display = 'none';
+            }
+        }
+
+        function displaySchedule(data) {
+            const container = document.getElementById('scheduleContent');
+            const table = document.createElement('table');
+            table.className = 'schedule-table';
+
+            const weekdays = data.weekdays;
+            const periods = data.periods;
+            const scheduleTable = data.table;
+            const periodToTime = data.period_to_time;
+
+            // ヘッダー行
+            const thead = document.createElement('thead');
+            const headerRow = document.createElement('tr');
+            
+            const timeHeader = document.createElement('th');
+            timeHeader.textContent = '時限';
+            headerRow.appendChild(timeHeader);
+
+            weekdays.forEach(weekday => {
+                const th = document.createElement('th');
+                th.textContent = weekday;
+                headerRow.appendChild(th);
+            });
+
+            thead.appendChild(headerRow);
+            table.appendChild(thead);
+
+            // ボディ行
+            const tbody = document.createElement('tbody');
+            periods.forEach(period => {
+                const row = document.createElement('tr');
+
+                // 時限列
+                const timeCell = document.createElement('td');
+                timeCell.textContent = `${period}限`;
+                timeCell.style.fontWeight = '600';
+                timeCell.style.background = '#f8f9fa';
+                row.appendChild(timeCell);
+
+                // 各曜日の授業
+                weekdays.forEach(weekday => {
+                    const cell = document.createElement('td');
+                    const classData = scheduleTable[weekday][period];
+
+                    if (classData) {
+                        const classCell = document.createElement('div');
+                        classCell.className = 'class-cell';
+                        classCell.innerHTML = `
+                            <div class="class-name">${classData.subject}</div>
+                            <div class="class-room">${classData.room}</div>
+                        `;
+                        cell.appendChild(classCell);
+                    } else {
+                        cell.innerHTML = '<div class="class-cell empty"></div>';
+                    }
+
+                    row.appendChild(cell);
+                });
+
+                tbody.appendChild(row);
+            });
+
+            table.appendChild(tbody);
+            container.innerHTML = '';
+            container.appendChild(table);
+
+            document.getElementById('scheduleContainer').style.display = 'block';
+        }
+
+        function resetForm() {
+            document.getElementById('apiKey').value = '';
+            document.getElementById('userId').value = '';
+            document.getElementById('apiBaseUrl').value = 'http://localhost:8000';
+            document.getElementById('scheduleContainer').style.display = 'none';
+            document.getElementById('messages').innerHTML = '';
+            localStorage.removeItem(API_KEY_STORAGE);
+            localStorage.removeItem(USER_ID_STORAGE);
+        }
+
+        // Enter キーで検索
+        document.getElementById('userId').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') loadSchedule();
+        });
+    </script>
+</body>
+</html>

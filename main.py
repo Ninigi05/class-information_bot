@@ -24,6 +24,7 @@ from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import Flow
 
 from utils import load_user_data, save_user_data, send_dm, send_long_dm
+from web_api_integration import start_web_server
 
 load_dotenv()
 
@@ -689,4 +690,18 @@ async def on_ready():
 if __name__ == "__main__":
     if not DISCORD_TOKEN:
         raise RuntimeError("DISCORD_TOKEN が未設定です。.env を確認してください。")
+
+    # Web API サーバーをスレッドで起動（Discord Bot と並行実行）
+    web_port = int(os.getenv("WEB_PORT", "8000"))
+    web_host = os.getenv("WEB_HOST", "0.0.0.0")
+    logger.info(f"Web API サーバーを起動します: {web_host}:{web_port}")
+
+    try:
+        start_web_server(host=web_host, port=web_port)
+        logger.info("[INFO] Web API サーバーが起動しました")
+    except Exception as e:
+        logger.exception(f"[ERROR] Web API サーバー起動失敗: {e}")
+
+    # Discord Bot を起動
+    logger.info("[INFO] Discord Bot を起動します...")
     bot.run(DISCORD_TOKEN)
