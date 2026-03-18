@@ -4,15 +4,15 @@ Discord Bot と並行して動作する Web API サーバー
 """
 
 import logging
-import asyncio
 from threading import Thread
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import os
 from typing import Optional
+from pydantic import BaseModel, Field
 
-from utils import load_user_data, WEEKDAYS, PERIOD_TO_TIME
+from utils import load_user_data, save_user_data, WEEKDAYS, PERIOD_TO_TIME, WEEKDAY_MAP
 from api_security import verify_api_key
 
 logger = logging.getLogger(__name__)
@@ -26,18 +26,25 @@ web_app = FastAPI(
 
 # ============ CORS 設定 ============
 # GitHub Pages など複数のドメインから利用可能に
-CORS_ORIGINS = [
+DEFAULT_CORS_ORIGINS = [
     "http://localhost:8000",
     "http://127.0.0.1:8000",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     # GitHub Pages 用（自分のリポジトリに合わせて実際のURLに変更）
     "https://username.github.io",
-    os.getenv("CORS_ORIGIN_GITHUB_PAGES", ""),  # 環境変数から指定可能
 ]
 
-# 空の文字列を除外
-CORS_ORIGINS = [origin for origin in CORS_ORIGINS if origin]
+
+def _parse_extra_cors_origins() -> list[str]:
+    """環境変数のカンマ区切り CORS 許可リストを展開する。"""
+    raw = os.getenv("CORS_ORIGIN_GITHUB_PAGES", "")
+    if not raw:
+        return []
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+# 空の文字列を除外し重複を除去
+CORS_ORIGINS = list(dict.fromkeys([*DEFAULT_CORS_ORIGINS, *_parse_extra_cors_origins()]))
 
 web_app.add_middleware(
     CORSMiddleware,
@@ -47,6 +54,35 @@ web_app.add_middleware(
     allow_headers=["*"],
     expose_headers=["X-API-Version"],
 )
+
+
+class ClassUpsertRequest(BaseModel):
+    """授業の追加/更新リクエスト。"""
+
+    weekday: str = Field(..., description="曜日（例: 月曜日）")
+    period: str = Field(..., description="時限（例: 1）")
+    subject: str = Field(..., min_length=1, description="授業名")
+    room: str = Field(..., min_length=1, description="教室")
+
+
+def _validate_weekday_and_period(weekday: str, period: str) -> None:
+    if weekday not in WEEKDAY_MAP:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"無効な曜日です: {weekday}",
+        )
+    if str(period) not in PERIOD_TO_TIME:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"無効な時限です: {period}",
+        )
+
+
+def _find_class_index(classes: list[dict], day: int, period: str) -> int:
+    for i, c in enumerate(classes):
+        if int(c.get("day", -1)) == day and str(c.get("period")) == str(period):
+            return i
+    return -1
 
 
 # ============ ヘルスチェック ============
@@ -101,6 +137,92 @@ async def get_user_classes(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="授業データの取得に失敗しました",
+        )
+
+
+@web_app.post("/api/user/{user_id}/classes/upsert")
+async def upsert_user_class(
+    user_id: int,
+    payload: ClassUpsertRequest,
+    _: bool = Depends(verify_api_key),
+):
+    """授業を追加、存在する場合は上書きする。"""
+    try:
+        _validate_weekday_and_period(payload.weekday, payload.period)
+        user_data = load_user_data(user_id)
+        classes = user_data.get("classes", [])
+        day = WEEKDAY_MAP[payload.weekday]
+        idx = _find_class_index(classes, day, payload.period)
+
+        item = {
+            "day": day,
+            "period": str(payload.period),
+            "subject": payload.subject.strip(),
+            "room": payload.room.strip(),
+        }
+
+        if idx >= 0:
+            classes[idx] = item
+            action = "updated"
+        else:
+            classes.append(item)
+            action = "created"
+
+        user_data["classes"] = classes
+        save_user_data(user_id, user_data)
+        logger.info("授業 upsert: user_id=%s weekday=%s period=%s action=%s", user_id, payload.weekday, payload.period, action)
+
+        return {
+            "ok": True,
+            "action": action,
+            "class": {**item, "weekday_name": payload.weekday},
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"授業 upsert エラー (user_id={user_id}): {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="授業データの保存に失敗しました",
+        )
+
+
+@web_app.delete("/api/user/{user_id}/classes/{weekday}/{period}")
+async def delete_user_class(
+    user_id: int,
+    weekday: str,
+    period: str,
+    _: bool = Depends(verify_api_key),
+):
+    """指定曜日・時限の授業を削除する。"""
+    try:
+        _validate_weekday_and_period(weekday, period)
+        user_data = load_user_data(user_id)
+        classes = user_data.get("classes", [])
+        day = WEEKDAY_MAP[weekday]
+        idx = _find_class_index(classes, day, period)
+        if idx < 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="削除対象の授業が見つかりません",
+            )
+
+        removed = classes.pop(idx)
+        user_data["classes"] = classes
+        save_user_data(user_id, user_data)
+        logger.info("授業 delete: user_id=%s weekday=%s period=%s", user_id, weekday, period)
+
+        return {
+            "ok": True,
+            "deleted": {**removed, "weekday_name": weekday},
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"授業 delete エラー (user_id={user_id}): {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="授業データの削除に失敗しました",
         )
 
 
