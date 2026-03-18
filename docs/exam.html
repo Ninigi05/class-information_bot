@@ -30,7 +30,7 @@
         <label><span class="text-sm">時間割名</span><input id="schedName" type="text" class="mt-1 w-full rounded border-slate-300" /></label>
         <label><span class="text-sm">開始日</span><input id="schedStart" type="date" class="mt-1 w-full rounded border-slate-300" /></label>
         <label><span class="text-sm">終了日</span><input id="schedEnd" type="date" class="mt-1 w-full rounded border-slate-300" /></label>
-        <button id="addSchedule" class="px-4 py-2 rounded bg-indigo-600 text-white font-bold hover:bg-indigo-700">時間割追加</button>
+        <button type="button" id="addSchedule" class="px-4 py-2 rounded bg-indigo-600 text-white font-bold hover:bg-indigo-700">時間割追加</button>
       </div>
 
       <div class="grid grid-cols-1 md:grid-cols-7 gap-2 items-end">
@@ -40,7 +40,7 @@
         <label><span class="text-sm">科目</span><input id="examSubject" type="text" class="mt-1 w-full rounded border-slate-300" /></label>
         <label><span class="text-sm">教室</span><input id="examRoom" type="text" class="mt-1 w-full rounded border-slate-300" /></label>
         <label><span class="text-sm">開始時刻(任意)</span><input id="examTime" type="time" class="mt-1 w-full rounded border-slate-300" /></label>
-        <button id="addExamClass" class="px-4 py-2 rounded bg-cyan-600 text-white font-bold hover:bg-cyan-700">授業追加</button>
+        <button type="button" id="addExamClass" class="px-4 py-2 rounded bg-cyan-600 text-white font-bold hover:bg-cyan-700">授業追加</button>
       </div>
 
       <div id="examList" class="text-sm"></div>
@@ -51,7 +51,7 @@
       <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
         <label><span class="text-sm">時限</span><select id="examOvPeriod" class="mt-1 w-full rounded border-slate-300"></select></label>
         <label><span class="text-sm">開始時刻</span><input id="examOvTime" type="time" class="mt-1 w-full rounded border-slate-300" /></label>
-        <button id="addExamOv" class="px-4 py-2 rounded bg-emerald-600 text-white font-bold hover:bg-emerald-700">上書き追加</button>
+        <button type="button" id="addExamOv" class="px-4 py-2 rounded bg-emerald-600 text-white font-bold hover:bg-emerald-700">上書き追加</button>
       </div>
       <div id="examOvList" class="text-sm"></div>
     </section>
@@ -95,6 +95,22 @@
 
     function save() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
+    }
+
+    function wireEnterFlow(elements, onLast) {
+      elements.forEach((elRef, idx) => {
+        elRef.addEventListener("keydown", (e) => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          const next = elements[idx + 1];
+          if (next) {
+            next.focus();
+            if (typeof next.select === "function") next.select();
+            return;
+          }
+          onLast();
+        });
+      });
     }
 
     function renderScheduleSelect() {
@@ -198,6 +214,19 @@
       save();
       renderExamOverrides();
     });
+
+    // Enter: 次項目へ。末尾は保存/追加。
+    wireEnterFlow([el.examFirst, el.examSecond], () => {
+      draft.notify.exam_first = Number(el.examFirst.value || 30);
+      draft.notify.exam_second = Number(el.examSecond.value || 25);
+      save();
+    });
+    wireEnterFlow([el.schedName, el.schedStart, el.schedEnd], () => el.addSchedule.click());
+    wireEnterFlow(
+      [el.targetSchedule, el.examWeekday, el.examPeriod, el.examSubject, el.examRoom, el.examTime],
+      () => el.addExamClass.click()
+    );
+    wireEnterFlow([el.examOvPeriod, el.examOvTime], () => el.addExamOv.click());
 
     renderScheduleSelect();
     renderExamList();

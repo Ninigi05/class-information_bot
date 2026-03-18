@@ -40,7 +40,7 @@
       <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
         <label><span class="text-sm">曜日変更 日付</span><input id="ovDayDate" type="date" class="mt-1 w-full rounded border-slate-300" /></label>
         <label><span class="text-sm">変更先曜日</span><select id="ovDayWeekday" class="mt-1 w-full rounded border-slate-300"></select></label>
-        <button id="addDayOverride" class="px-4 py-2 rounded bg-cyan-600 text-white font-bold hover:bg-cyan-700">曜日上書き追加</button>
+        <button type="button" id="addDayOverride" class="px-4 py-2 rounded bg-cyan-600 text-white font-bold hover:bg-cyan-700">曜日上書き追加</button>
       </div>
       <div id="dayOverrideList" class="text-sm text-slate-700"></div>
 
@@ -50,7 +50,7 @@
         <label><span class="text-sm">教室変更 日付</span><input id="ovRoomDate" type="date" class="mt-1 w-full rounded border-slate-300" /></label>
         <label><span class="text-sm">時限</span><select id="ovRoomPeriod" class="mt-1 w-full rounded border-slate-300"></select></label>
         <label><span class="text-sm">新しい教室</span><input id="ovRoomValue" type="text" class="mt-1 w-full rounded border-slate-300" /></label>
-        <button id="addRoomOverride" class="px-4 py-2 rounded bg-cyan-600 text-white font-bold hover:bg-cyan-700">教室上書き追加</button>
+        <button type="button" id="addRoomOverride" class="px-4 py-2 rounded bg-cyan-600 text-white font-bold hover:bg-cyan-700">教室上書き追加</button>
       </div>
       <div id="roomOverrideList" class="text-sm text-slate-700"></div>
     </section>
@@ -58,7 +58,7 @@
     <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7 space-y-4">
       <h2 class="text-lg font-bold">Gmail休講認証（Web）</h2>
       <div class="flex flex-wrap gap-2">
-        <button id="openGmailAuth" class="px-4 py-2 rounded bg-amber-600 text-white font-bold hover:bg-amber-700">認証URLを取得</button>
+        <button type="button" id="openGmailAuth" class="px-4 py-2 rounded bg-amber-600 text-white font-bold hover:bg-amber-700">認証URLを取得</button>
         <a id="gmailAuthUrl" href="#" target="_blank" rel="noopener" class="hidden px-4 py-2 rounded bg-amber-100 text-amber-900 font-semibold border border-amber-300">Gmail認証ページを開く</a>
       </div>
       <label class="block"><span class="text-sm">取得した認証コード（code）</span><input id="gmailAuthCode" type="text" class="mt-1 w-full rounded border-slate-300" placeholder="4/0Ab..." /></label>
@@ -66,7 +66,7 @@
 
     <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7 space-y-3">
       <h2 class="text-lg font-bold">連携キー発行</h2>
-      <button id="issueKey" class="px-5 py-2.5 rounded-lg bg-emerald-600 text-white font-extrabold hover:bg-emerald-700">連携キーを発行</button>
+      <button type="button" id="issueKey" class="px-5 py-2.5 rounded-lg bg-emerald-600 text-white font-extrabold hover:bg-emerald-700">連携キーを発行</button>
       <div id="result" class="hidden rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-sm"></div>
     </section>
   </main>
@@ -136,6 +136,22 @@
 
     function persist() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
+    }
+
+    function wireEnterFlow(elements, onLast) {
+      elements.forEach((elRef, idx) => {
+        elRef.addEventListener("keydown", (e) => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          const next = elements[idx + 1];
+          if (next) {
+            next.focus();
+            if (typeof next.select === "function") next.select();
+            return;
+          }
+          onLast();
+        });
+      });
     }
 
     function classAt(weekday, period) {
@@ -331,6 +347,23 @@
         persist();
       });
     });
+
+    // Enter: 次項目へ。末尾は保存/追加。
+    wireEnterFlow([el.normalFirst, el.normalSecond, el.morningTime], () => {
+      draft.notify.normal_first = Number(el.normalFirst.value || 15);
+      draft.notify.normal_second = Number(el.normalSecond.value || 10);
+      draft.notify.morning_time = el.morningTime.value || "08:00";
+      persist();
+    });
+
+    wireEnterFlow([el.ovDayDate, el.ovDayWeekday], () => el.addDayOverride.click());
+    wireEnterFlow([el.ovRoomDate, el.ovRoomPeriod, el.ovRoomValue], () => el.addRoomOverride.click());
+    wireEnterFlow([el.gmailAuthCode], () => {
+      draft.gmail_auth_code = el.gmailAuthCode.value || "";
+      persist();
+    });
+
+    wireEnterFlow([el.dlgSubject, el.dlgRoom], () => el.dlgSave.click());
 
     renderTimetable();
     renderOverrideLists();
