@@ -88,8 +88,9 @@
   </dialog>
 
   <script>
-    const BACKEND = "https://inter-movies-relations-reporter.trycloudflare.com";
+    const DEFAULT_BACKEND = "https://inter-movies-relations-reporter.trycloudflare.com";
     const STORAGE_KEY = "web_reg_draft_v2";
+    const API_BASE_STORAGE_KEY = "web_api_base_url";
     const weekdays = ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"];
     const periods = ["1", "2", "3", "4", "5", "6"];
 
@@ -133,6 +134,18 @@
     };
 
     let editing = null;
+
+    function resolveBackendBase() {
+      const params = new URLSearchParams(window.location.search);
+      const apiFromQuery = (params.get("api") || "").trim();
+      const apiFromStorage = (localStorage.getItem(API_BASE_STORAGE_KEY) || "").trim();
+      const chosen = apiFromQuery || apiFromStorage || DEFAULT_BACKEND;
+      const normalized = chosen.replace(/\/+$/, "");
+      if (apiFromQuery) localStorage.setItem(API_BASE_STORAGE_KEY, normalized);
+      return normalized;
+    }
+
+    const BACKEND = resolveBackendBase();
 
     function persist() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
@@ -224,7 +237,12 @@
     }
 
     async function fetchGmailAuthUrl() {
-      const res = await fetch(`${BACKEND}/api/public/gmail-auth-url`);
+      let res;
+      try {
+        res = await fetch(`${BACKEND}/api/public/gmail-auth-url`);
+      } catch (e) {
+        throw new Error(`バックエンドに接続できません: ${BACKEND}`);
+      }
       if (!res.ok) throw new Error("Gmail認証URLの取得に失敗しました");
       return res.json();
     }
@@ -240,11 +258,16 @@
         },
         gmail_auth_code: (el.gmailAuthCode.value || "").trim(),
       };
-      const res = await fetch(`${BACKEND}/api/public/issue-link-key`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      let res;
+      try {
+        res = await fetch(`${BACKEND}/api/public/issue-link-key`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      } catch (e) {
+        throw new Error(`バックエンドに接続できません: ${BACKEND}`);
+      }
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.detail || `HTTP ${res.status}`);
