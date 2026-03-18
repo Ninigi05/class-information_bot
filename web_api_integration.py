@@ -35,20 +35,53 @@ DEFAULT_CORS_ORIGINS = [
     "https://username.github.io",
 ]
 
+DEFAULT_CORS_REGEX = r"^https://([a-z0-9-]+\.)*github\.io$"
+
+
+def _normalize_origin(value: str) -> str:
+    """末尾スラッシュを除去して CORS 比較しやすい形に揃える。"""
+    return value.strip().rstrip("/")
+
 
 def _parse_extra_cors_origins() -> list[str]:
     """環境変数のカンマ区切り CORS 許可リストを展開する。"""
     raw = os.getenv("CORS_ORIGIN_GITHUB_PAGES", "")
     if not raw:
         return []
-    return [item.strip() for item in raw.split(",") if item.strip()]
+    return [_normalize_origin(item) for item in raw.split(",") if item.strip()]
+
+
+def _get_tunnel_origin() -> str:
+    """Cloudflare Quick Tunnel の公開URLを取得する。"""
+    value = os.getenv("TUNNEL_PUBLIC_BASE_URL", "").strip()
+    if not value:
+        return ""
+    return _normalize_origin(value)
+
+
+def _build_cors_origin_regex() -> str:
+    """必要に応じて CORS の正規表現を組み立てる。"""
+    user_regex = os.getenv("CORS_ORIGIN_REGEX", "").strip()
+    if user_regex:
+        return user_regex
+    return DEFAULT_CORS_REGEX
 
 # 空の文字列を除外し重複を除去
-CORS_ORIGINS = list(dict.fromkeys([*DEFAULT_CORS_ORIGINS, *_parse_extra_cors_origins()]))
+CORS_ORIGINS = list(
+    dict.fromkeys(
+        [
+            *[_normalize_origin(x) for x in DEFAULT_CORS_ORIGINS],
+            *_parse_extra_cors_origins(),
+            _get_tunnel_origin(),
+        ]
+    )
+)
+CORS_ORIGINS = [x for x in CORS_ORIGINS if x]
 
 web_app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
+    allow_origin_regex=_build_cors_origin_regex(),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],

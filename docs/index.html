@@ -22,11 +22,7 @@
       <div class="p-6 md:p-8 space-y-6">
         <div id="toast" class="hidden rounded-lg px-4 py-3 text-sm font-semibold"></div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <label class="block">
-            <span class="text-sm font-bold text-slate-700">API Base URL</span>
-            <input id="apiBaseUrl" type="text" class="mt-1 w-full rounded-lg border-slate-300 focus:ring-2 focus:ring-cyan-500" placeholder="https://example.com" value="http://localhost:8000" />
-          </label>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <label class="block">
             <span class="text-sm font-bold text-slate-700">API Key</span>
             <input id="apiKey" type="password" class="mt-1 w-full rounded-lg border-slate-300 focus:ring-2 focus:ring-cyan-500" placeholder="X-API-Key" />
@@ -42,6 +38,10 @@
 
         <div class="rounded-xl bg-slate-50 border border-slate-200 p-4 text-sm text-slate-600">
           セルをクリックすると授業の追加・更新・削除ができます。
+        </div>
+
+        <div class="rounded-xl bg-amber-50 border border-amber-200 p-4 text-xs md:text-sm text-amber-900">
+          接続先URLは固定されています。利用者は API Key と User ID の入力のみで利用できます。
         </div>
 
         <div class="overflow-x-auto">
@@ -76,8 +76,9 @@
   </dialog>
 
   <script>
+    const FIXED_API_BASE_URL = "https://inter-movies-relations-reporter.trycloudflare.com";
+
     const storageKeys = {
-      apiBaseUrl: "classdash_apiBaseUrl",
       apiKey: "classdash_apiKey",
       userId: "classdash_userId",
     };
@@ -91,7 +92,6 @@
     };
 
     const el = {
-      apiBaseUrl: document.getElementById("apiBaseUrl"),
       apiKey: document.getElementById("apiKey"),
       userId: document.getElementById("userId"),
       loadBtn: document.getElementById("loadBtn"),
@@ -132,7 +132,7 @@
     }
 
     function getConfig() {
-      const apiBaseUrl = el.apiBaseUrl.value.trim().replace(/\/$/, "");
+      const apiBaseUrl = FIXED_API_BASE_URL;
       const apiKey = el.apiKey.value.trim();
       const userId = el.userId.value.trim();
       if (!apiBaseUrl || !apiKey || !userId) {
@@ -307,7 +307,7 @@
       }
     });
 
-    [el.apiBaseUrl, el.apiKey, el.userId].forEach((input) => {
+    [el.apiKey, el.userId].forEach((input) => {
       input.addEventListener("keydown", async (e) => {
         if (e.key === "Enter") {
           e.preventDefault();
