@@ -9,6 +9,7 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import pickle
 import re
 import sys
@@ -31,6 +32,29 @@ load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GUILD_ID = int(os.getenv("GUILD_ID") or 0)
+APP_TIMEZONE = (os.getenv("APP_TIMEZONE") or "Asia/Tokyo").strip()
+
+
+class AppTimezoneFormatter(logging.Formatter):
+    """Format log timestamps in APP_TIMEZONE regardless of host/container localtime."""
+
+    def formatTime(self, record, datefmt=None):
+        try:
+            dt = datetime.fromtimestamp(record.created, ZoneInfo(APP_TIMEZONE))
+        except Exception:
+            dt = datetime.fromtimestamp(record.created)
+        if datefmt:
+            return dt.strftime(datefmt)
+        return dt.isoformat(timespec="seconds")
+
+
+def now_local() -> datetime:
+    """Return current time in configured application timezone."""
+    try:
+        return datetime.now(ZoneInfo(APP_TIMEZONE))
+    except Exception:
+        # Fallback to system local time if timezone config is invalid.
+        return datetime.now()
 
 
 def _resolve_gmail_credentials() -> str:
@@ -61,9 +85,9 @@ def configure_logging():
     if root_logger.handlers:
         root_logger.handlers.clear()
 
-    formatter = logging.Formatter(
+    formatter = AppTimezoneFormatter(
         "%(asctime)s %(levelname)s [%(name)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
+        datefmt="%Y-%m-%d %H:%M:%S %z",
     )
 
     file_handler = RotatingFileHandler(
@@ -83,6 +107,12 @@ def configure_logging():
 
 configure_logging()
 logger = logging.getLogger(__name__)
+logger.info(
+    "[TIME] APP_TIMEZONE=%s now_local=%s now_utc=%s",
+    APP_TIMEZONE,
+    now_local().strftime("%Y-%m-%d %H:%M:%S %z"),
+    datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+)
 
 # Gmail 認証フロー（一時保存）
 user_auth_flows = {}
@@ -261,7 +291,7 @@ def parse_cancellation_email(mail):
         if date_match2:
             month = int(date_match2.group(1))
             day = int(date_match2.group(2))
-            year = datetime.now().year
+            year = now_local().year
             date_str = f"{year}-{month:02d}-{day:02d}"
         else:
             logger.warning(f"[WARNING] 日付抽出失敗: {subject_header}")
@@ -276,7 +306,7 @@ def parse_cancellation_email(mail):
         elif western_year:
             year = int(western_year)
         else:
-            year = datetime.now().year
+            year = now_local().year
         date_str = f"{year}-{month:02d}-{day:02d}"
 
     periods = []
@@ -876,9 +906,7 @@ if __name__ == "__main__":
     if tunnel_public_base_url:
         logger.info(f"[INFO] Tunnel URL: {tunnel_public_base_url}")
     if tunnel_public_base_url and github_pages_url:
-        logger.info(
-            f"[INFO] GitHub Pages URL: {github_pages_url}"
-        )
+        logger.info(f"[INFO] GitHub Pages URL: {github_pages_url}")
 
     try:
         start_web_server(host=web_host, port=web_port)

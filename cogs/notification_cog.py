@@ -8,6 +8,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from datetime import datetime, date
+from zoneinfo import ZoneInfo
+from typing import Optional
 from utils import (
     load_user_data,
     save_user_data,
@@ -22,6 +24,15 @@ from utils import (
 BASE_DIR = os.getcwd()
 MORNING_MARK_FILE = os.path.join(BASE_DIR, "morning_sent.json")
 logger = logging.getLogger(__name__)
+APP_TIMEZONE = (os.getenv("APP_TIMEZONE") or "Asia/Tokyo").strip()
+
+
+def _now_local() -> datetime:
+    """Return current time in configured application timezone."""
+    try:
+        return datetime.now(ZoneInfo(APP_TIMEZONE))
+    except Exception:
+        return datetime.now()
 
 
 def _is_user_morning_time(now: datetime, data: dict) -> bool:
@@ -364,7 +375,7 @@ class NotificationCog(commands.Cog):
         # catch-up: if between 08:00 and 12:00, run a fake 08:00 pass so any user
         # who did not yet receive the morning summary will receive it now.
         # Per-user idempotency is handled inside _do_notification_pass via the morning marker.
-        now = datetime.now()
+        now = _now_local()
         if 8 <= now.hour < 12:
             try:
                 await self._do_notification_pass(
@@ -373,9 +384,9 @@ class NotificationCog(commands.Cog):
             except Exception as e:
                 logger.warning(f"[WARN] 起動時補完で例外: {e}")
 
-    async def _do_notification_pass(self, now: datetime = None):
+    async def _do_notification_pass(self, now: Optional[datetime] = None):
         if now is None:
-            now = datetime.now()
+            now = _now_local()
 
         async with self._notif_lock:
             minute_key = now.strftime("%Y-%m-%d %H:%M")

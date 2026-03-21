@@ -7,6 +7,9 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      - TZ=Asia/Tokyo
+      - APP_TIMEZONE=Asia/Tokyo
     # main.py が WEB_PORT(既定 8000) で FastAPI を起動するため公開
     ports:
       - "8000:8000"
