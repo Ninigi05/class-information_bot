@@ -39,6 +39,12 @@ load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GUILD_ID = int(os.getenv("GUILD_ID") or 0)
+SYNC_GUILD_COMMANDS = (os.getenv("SYNC_GUILD_COMMANDS") or "0").strip() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 APP_TIMEZONE = (os.getenv("APP_TIMEZONE") or "Asia/Tokyo").strip()
 
 
@@ -656,6 +662,7 @@ def _enable_user_install_support(tree: app_commands.CommandTree) -> None:
 async def web_applykey(interaction: discord.Interaction, key: str):
     await interaction.response.defer(ephemeral=True)
     user_id = interaction.user.id
+    term = get_current_term()
     payload = consume_link_key((key or "").strip().upper())
     if not payload:
         await interaction.followup.send(
@@ -667,6 +674,7 @@ async def web_applykey(interaction: discord.Interaction, key: str):
     try:
         user_data = load_user_data(user_id)
         feature = ((payload.get("_meta") or {}).get("feature") or "all").strip()
+        term = ((payload.get("_meta") or {}).get("term") or get_current_term()).strip()
         feature_names = {
             "all": "全体",
             "classes": "通常時間割",
@@ -789,6 +797,19 @@ class ClassBot(commands.Bot):
         intents = discord.Intents.default()
         intents.message_content = True
         super().__init__(command_prefix="!", intents=intents)
+        # Ensure all app commands are user-installable and executable in DMs by default.
+        try:
+            self.tree.allowed_installs = app_commands.AppInstallationType(
+                guild=True,
+                user=True,
+            )
+            self.tree.allowed_contexts = app_commands.AppCommandContext(
+                guild=True,
+                dm_channel=True,
+                private_channel=True,
+            )
+        except Exception as e:
+            logger.warning(f"[WARN] tree default contexts/install 設定失敗: {e}")
 
     async def setup_hook(self):
         # cog のロード
@@ -932,7 +953,18 @@ bot = ClassBot()
 @bot.event
 async def on_ready():
     logger.info(f"Bot 起動完了: {bot.user}")
+    try:
+        synced_global = await bot.tree.sync()
+        logger.info(f"グローバルにコマンド同期: {len(synced_global)} 件")
+    except Exception as e:
+        logger.exception(f"グローバル同期失敗: {e}")
+
+    # Optional: keep guild sync only when explicitly enabled for quick testing.
     guild = discord.Object(id=GUILD_ID) if GUILD_ID else None
+    if not SYNC_GUILD_COMMANDS:
+        logger.info("ギルド同期は無効です（SYNC_GUILD_COMMANDS=0）。")
+        return
+
     try:
         if guild:
             synced_guild = await bot.tree.sync(guild=guild)
@@ -941,11 +973,6 @@ async def on_ready():
             logger.info("GUILD_ID が設定されていません。ギルド同期をスキップします。")
     except Exception as e:
         logger.exception(f"ギルド同期失敗: {e}")
-    try:
-        synced_global = await bot.tree.sync()
-        logger.info(f"グローバルにコマンド同期: {len(synced_global)} 件")
-    except Exception as e:
-        logger.exception(f"グローバル同期失敗: {e}")
 
 
 if __name__ == "__main__":
