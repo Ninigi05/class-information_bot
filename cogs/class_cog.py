@@ -11,6 +11,7 @@ from utils import (
     save_user_data,
     send_dm,
     send_long_dm,
+    get_current_term,
     WEEKDAYS,
     WEEKDAY_MAP,
     PERIOD_TO_TIME,
@@ -39,8 +40,9 @@ class ClassCog(commands.GroupCog, name="class"):
     ):
         user_id = interaction.user.id
         data = load_user_data(user_id)
+        term = get_current_term()
         subjects = []
-        for c in data.get("classes", []) or []:
+        for c in data.get("classes_by_term", {}).get(term, []) or []:
             s = str(c.get("subject", "")).strip()
             if s and current in s:
                 subjects.append(s)
@@ -67,8 +69,9 @@ class ClassCog(commands.GroupCog, name="class"):
     async def room_autocomplete(self, interaction: discord.Interaction, current: str):
         user_id = interaction.user.id
         data = load_user_data(user_id)
+        term = get_current_term()
         rooms = []
-        for c in data.get("classes", []) or []:
+        for c in data.get("classes_by_term", {}).get(term, []) or []:
             r = str(c.get("room", "")).strip()
             if r and current in r:
                 rooms.append(r)
@@ -118,7 +121,9 @@ class ClassCog(commands.GroupCog, name="class"):
         return lines
 
     @classmethod
-    def _wrap_subject(cls, subject: str, max_chars: int = 10, max_lines: int = 4) -> list[str]:
+    def _wrap_subject(
+        cls, subject: str, max_chars: int = 10, max_lines: int = 4
+    ) -> list[str]:
         tokens = cls._tokenize_subject(subject)
         if not tokens:
             return [""]
@@ -156,7 +161,8 @@ class ClassCog(commands.GroupCog, name="class"):
     )
     async def class_table(self, interaction: discord.Interaction):
         data = load_user_data(interaction.user.id)
-        classes = data.get("classes", [])
+        term = get_current_term()
+        classes = data.get("classes_by_term", {}).get(term, [])
         if not classes:
             await interaction.response.send_message(
                 "登録されている授業はありません。", ephemeral=True
@@ -206,15 +212,17 @@ class ClassCog(commands.GroupCog, name="class"):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
         data = load_user_data(user_id)
-        data["classes"] = [
+        term = get_current_term()
+        data.setdefault("classes_by_term", {}).setdefault(term, [])
+        data["classes_by_term"][term] = [
             c
-            for c in data.get("classes", [])
+            for c in data.get("classes_by_term", {}).get(term, [])
             if not (
                 c.get("day") == WEEKDAY_MAP[weekday]
                 and str(c.get("period")) == str(period)
             )
         ]
-        data["classes"].append(
+        data["classes_by_term"][term].append(
             {
                 "day": WEEKDAY_MAP[weekday],
                 "period": period,
@@ -241,17 +249,19 @@ class ClassCog(commands.GroupCog, name="class"):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
         data = load_user_data(user_id)
-        before = len(data.get("classes", []))
-        data["classes"] = [
+        term = get_current_term()
+        before = len(data.get("classes_by_term", {}).get(term, []))
+        data.setdefault("classes_by_term", {}).setdefault(term, [])
+        data["classes_by_term"][term] = [
             c
-            for c in data.get("classes", [])
+            for c in data.get("classes_by_term", {}).get(term, [])
             if not (
                 c.get("day") == WEEKDAY_MAP[weekday]
                 and str(c.get("period")) == str(period)
             )
         ]
         save_user_data(user_id, data)
-        removed = before - len(data.get("classes", []))
+        removed = before - len(data.get("classes_by_term", {}).get(term, []))
         await send_dm(
             interaction.user, f" {removed}件を削除しました：{weekday} {period}限"
         )
@@ -264,7 +274,8 @@ class ClassCog(commands.GroupCog, name="class"):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
         data = load_user_data(user_id)
-        classes = data.get("classes", []) or []
+        term = get_current_term()
+        classes = data.get("classes_by_term", {}).get(term, []) or []
         if not classes:
             await send_dm(interaction.user, "登録授業はありません。")
             await interaction.followup.send(
@@ -360,8 +371,9 @@ class ClassCog(commands.GroupCog, name="class"):
             return
         user_id = interaction.user.id
         data = load_user_data(user_id)
+        term = get_current_term()
         found = False
-        for cls in data.get("classes", []):
+        for cls in data.get("classes_by_term", {}).get(term, []):
             if str(cls.get("period")) == str(period):
                 cls.setdefault("room_overrides", {})[date] = new_room
                 found = True
@@ -398,7 +410,8 @@ class ClassCog(commands.GroupCog, name="class"):
             return
         user_id = interaction.user.id
         data = load_user_data(user_id)
-        for cls in data.get("classes", []):
+        term = get_current_term()
+        for cls in data.get("classes_by_term", {}).get(term, []):
             cls.setdefault("overrides", {})[date] = WEEKDAY_MAP[new_weekday]
         save_user_data(user_id, data)
         await send_dm(

@@ -15,6 +15,7 @@ from utils import (
     save_user_data,
     send_dm,
     send_long_dm,
+    get_current_term,
     WEEKDAYS,
     WEEKDAY_MAP,
     PERIOD_TO_TIME,
@@ -78,8 +79,9 @@ class NotificationCog(commands.Cog):
     ):
         user_id = interaction.user.id
         data = load_user_data(user_id)
+        term = get_current_term()
         subjects = []
-        for c in data.get("classes", []) or []:
+        for c in data.get("classes_by_term", {}).get(term, []) or []:
             s = str(c.get("subject", "")).strip()
             if s and current in s:
                 subjects.append(s)
@@ -421,8 +423,9 @@ class NotificationCog(commands.Cog):
                     if not data:
                         continue
 
-                    classes = data.get("classes", []) or []
-                    exam_schedules = data.get("exam_schedules", []) or []
+                    term = get_current_term()
+                    classes = data.get("classes_by_term", {}).get(term, []) or []
+                    exam_schedules = data.get("exam_schedules_by_term", {}).get(term, []) or []
                     if (
                         not classes
                         and not data.get("makeup_classes")

@@ -12,9 +12,16 @@
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 class="text-2xl font-extrabold">授業登録（Web）</h1>
-          <p class="text-sm text-slate-600 mt-1">登録後にキーを発行し、Discord の <code>/web applykey</code> で反映します。</p>
+          <p class="text-sm text-slate-600 mt-1">登録後に機能ごとのキーを発行し、Discord の /web applykey で反映します。</p>
+          <div class="flex gap-2 mt-3">
+            <button type="button" id="termToggle1st" class="px-3 py-1.5 rounded text-sm font-bold bg-emerald-600 text-white hover:bg-emerald-700">前期</button>
+            <button type="button" id="termToggle2nd" class="px-3 py-1.5 rounded text-sm font-bold bg-slate-300 text-slate-700 hover:bg-slate-400">後期</button>
+          </div>
         </div>
-        <a href="./exam.html" class="px-4 py-2 rounded-lg bg-indigo-600 text-white font-bold hover:bg-indigo-700">試験時間割ページへ</a>
+        <div class="flex flex-wrap gap-2">
+          <a href="https://discord.com/oauth2/authorize?client_id=1417678753835778129&integration_type=1&scope=applications.commands" target="_blank" rel="noopener" class="px-4 py-2 rounded-lg bg-sky-600 text-white font-bold hover:bg-sky-700">Discordで導入する</a>
+          <a href="./exam.html" class="px-4 py-2 rounded-lg bg-indigo-600 text-white font-bold hover:bg-indigo-700">試験時間割ページへ</a>
+        </div>
       </div>
     </section>
 
@@ -65,8 +72,15 @@
     </section>
 
     <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7 space-y-3">
-      <h2 class="text-lg font-bold">連携キー発行</h2>
-      <button type="button" id="issueKey" class="px-5 py-2.5 rounded-lg bg-emerald-600 text-white font-extrabold hover:bg-emerald-700">連携キーを発行</button>
+      <h2 class="text-lg font-bold">連携キー発行（機能別）</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        <button type="button" id="issueKeyAll" class="px-4 py-2.5 rounded-lg bg-emerald-600 text-white font-extrabold hover:bg-emerald-700">全体キーを発行</button>
+        <button type="button" id="issueKeyClasses" class="px-4 py-2.5 rounded-lg bg-cyan-600 text-white font-extrabold hover:bg-cyan-700">通常時間割キー</button>
+        <button type="button" id="issueKeyNotify" class="px-4 py-2.5 rounded-lg bg-cyan-600 text-white font-extrabold hover:bg-cyan-700">通知設定キー</button>
+        <button type="button" id="issueKeyOverrides" class="px-4 py-2.5 rounded-lg bg-cyan-600 text-white font-extrabold hover:bg-cyan-700">上書き設定キー</button>
+        <button type="button" id="issueKeyGmail" class="px-4 py-2.5 rounded-lg bg-amber-600 text-white font-extrabold hover:bg-amber-700">Gmail認証キー</button>
+        <button type="button" id="issueKeyExam" class="px-4 py-2.5 rounded-lg bg-indigo-600 text-white font-extrabold hover:bg-indigo-700">試験設定キー</button>
+      </div>
       <div id="result" class="hidden rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-sm"></div>
     </section>
   </main>
@@ -90,21 +104,36 @@
   <script>
     const BACKEND = "https://technique-lol-fishing-shell.trycloudflare.com";
     const STORAGE_KEY = "web_reg_draft_v2";
+    const TERM_STORAGE_KEY = "web_current_term";
     const weekdays = ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"];
     const periods = ["1", "2", "3", "4", "5", "6"];
 
+    let currentTerm = localStorage.getItem(TERM_STORAGE_KEY) || "1st";
+
     const draft = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null") || {
-      classes: [],
+      classes_by_term: { "1st": [], "2nd": [] },
       notify: { normal_first: 15, normal_second: 10, exam_first: 30, exam_second: 25, morning_time: "08:00" },
       period_overrides: {},
       day_overrides: [],
       room_overrides: [],
-      exam_schedules: [],
+      exam_schedules_by_term: { "1st": [], "2nd": [] },
       exam_period_overrides: {},
       gmail_auth_code: "",
     };
 
+    // Migration for old single-term structure
+    if (Array.isArray(draft.classes)) {
+      draft.classes_by_term = { "1st": draft.classes, "2nd": [] };
+      delete draft.classes;
+    }
+    if (Array.isArray(draft.exam_schedules)) {
+      draft.exam_schedules_by_term = { "1st": draft.exam_schedules, "2nd": [] };
+      delete draft.exam_schedules;
+    }
+
     const el = {
+      termToggle1st: document.getElementById("termToggle1st"),
+      termToggle2nd: document.getElementById("termToggle2nd"),
       timetable: document.getElementById("timetable"),
       normalFirst: document.getElementById("normalFirst"),
       normalSecond: document.getElementById("normalSecond"),
@@ -121,7 +150,12 @@
       openGmailAuth: document.getElementById("openGmailAuth"),
       gmailAuthUrl: document.getElementById("gmailAuthUrl"),
       gmailAuthCode: document.getElementById("gmailAuthCode"),
-      issueKey: document.getElementById("issueKey"),
+      issueKeyAll: document.getElementById("issueKeyAll"),
+      issueKeyClasses: document.getElementById("issueKeyClasses"),
+      issueKeyNotify: document.getElementById("issueKeyNotify"),
+      issueKeyOverrides: document.getElementById("issueKeyOverrides"),
+      issueKeyGmail: document.getElementById("issueKeyGmail"),
+      issueKeyExam: document.getElementById("issueKeyExam"),
       result: document.getElementById("result"),
       classDialog: document.getElementById("classDialog"),
       classDialogTitle: document.getElementById("classDialogTitle"),
@@ -155,12 +189,13 @@
     }
 
     function classAt(weekday, period) {
-      return draft.classes.find(c => c.weekday === weekday && String(c.period) === String(period)) || null;
+      const classes = draft.classes_by_term[currentTerm] || [];
+      return classes.find(c => c.weekday === weekday && String(c.period) === String(period)) || null;
     }
 
     function setClass(weekday, period, subject, room) {
-      draft.classes = draft.classes.filter(c => !(c.weekday === weekday && String(c.period) === String(period)));
-      if (subject && room) draft.classes.push({ weekday, period: String(period), subject, room });
+      draft.classes_by_term[currentTerm] = (draft.classes_by_term[currentTerm] || []).filter(c => !(c.weekday === weekday && String(c.period) === String(period)));
+      if (subject && room) draft.classes_by_term[currentTerm].push({ weekday, period: String(period), subject, room });
       persist();
       renderTimetable();
     }
@@ -234,8 +269,8 @@
       return res.json();
     }
 
-    async function issueLinkKey() {
-      const body = {
+    async function issueLinkKey(feature) {
+      const data = {
         ...draft,
         notify: {
           ...draft.notify,
@@ -245,6 +280,13 @@
         },
         gmail_auth_code: (el.gmailAuthCode.value || "").trim(),
       };
+
+      const body = {
+        feature: feature || "all",
+        data,
+        _meta: { term: currentTerm },
+      };
+
       let res;
       try {
         res = await fetch(`${BACKEND}/api/public/issue-link-key`, {
@@ -333,11 +375,21 @@
       }
     });
 
-    el.issueKey.addEventListener("click", async () => {
+    const featureNames = {
+      all: "全体",
+      classes: "通常時間割",
+      notify: "通知設定",
+      overrides: "上書き設定",
+      gmail: "Gmail認証",
+      exam: "試験設定",
+    };
+
+    async function runIssue(feature) {
       try {
-        const data = await issueLinkKey();
+        const data = await issueLinkKey(feature);
         el.result.classList.remove("hidden");
         el.result.innerHTML = `
+          <div class='font-bold'>対象機能: ${escapeHtml(featureNames[data.feature] || data.feature || feature)}</div>
           <div class='font-bold'>連携キー: <span class='text-xl'>${escapeHtml(data.link_key)}</span></div>
           <div class='mt-2'>有効期限: ${escapeHtml(data.expires_at)}</div>
           <div class='mt-2'>Discordで以下を実行してください:</div>
@@ -346,7 +398,43 @@
       } catch (e) {
         alert(e.message || "キー発行失敗");
       }
+    }
+
+    el.termToggle1st.addEventListener("click", () => {
+      currentTerm = "1st";
+      localStorage.setItem(TERM_STORAGE_KEY, currentTerm);
+      el.termToggle1st.classList.add("bg-emerald-600", "text-white", "hover:bg-emerald-700");
+      el.termToggle1st.classList.remove("bg-slate-300", "text-slate-700", "hover:bg-slate-400");
+      el.termToggle2nd.classList.remove("bg-emerald-600", "text-white", "hover:bg-emerald-700");
+      el.termToggle2nd.classList.add("bg-slate-300", "text-slate-700", "hover:bg-slate-400");
+      renderTimetable();
     });
+
+    el.termToggle2nd.addEventListener("click", () => {
+      currentTerm = "2nd";
+      localStorage.setItem(TERM_STORAGE_KEY, currentTerm);
+      el.termToggle2nd.classList.add("bg-emerald-600", "text-white", "hover:bg-emerald-700");
+      el.termToggle2nd.classList.remove("bg-slate-300", "text-slate-700", "hover:bg-slate-400");
+      el.termToggle1st.classList.remove("bg-emerald-600", "text-white", "hover:bg-emerald-700");
+      el.termToggle1st.classList.add("bg-slate-300", "text-slate-700", "hover:bg-slate-400");
+      renderTimetable();
+    });
+
+    // Initialize term toggle button appearance
+    if (currentTerm === "1st") {
+      el.termToggle1st.classList.add("bg-emerald-600", "text-white", "hover:bg-emerald-700");
+      el.termToggle1st.classList.remove("bg-slate-300", "text-slate-700", "hover:bg-slate-400");
+    } else {
+      el.termToggle2nd.classList.add("bg-emerald-600", "text-white", "hover:bg-emerald-700");
+      el.termToggle2nd.classList.remove("bg-slate-300", "text-slate-700", "hover:bg-slate-400");
+    }
+
+    el.issueKeyAll.addEventListener("click", async () => runIssue("all"));
+    el.issueKeyClasses.addEventListener("click", async () => runIssue("classes"));
+    el.issueKeyNotify.addEventListener("click", async () => runIssue("notify"));
+    el.issueKeyOverrides.addEventListener("click", async () => runIssue("overrides"));
+    el.issueKeyGmail.addEventListener("click", async () => runIssue("gmail"));
+    el.issueKeyExam.addEventListener("click", async () => runIssue("exam"));
 
     [el.normalFirst, el.normalSecond, el.morningTime, el.gmailAuthCode].forEach(inp => {
       inp.addEventListener("change", () => {
@@ -375,6 +463,10 @@
 
     wireEnterFlow([el.dlgSubject, el.dlgRoom], () => el.dlgSave.click());
 
+    // Initialize draft - ensure term-aware structure exists
+    draft.classes_by_term = draft.classes_by_term || { "1st": [], "2nd": [] };
+    draft.exam_schedules_by_term = draft.exam_schedules_by_term || { "1st": [], "2nd": [] };
+    
     renderTimetable();
     renderOverrideLists();
   </script>

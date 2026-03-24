@@ -9,7 +9,7 @@ from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import os
-from typing import Optional
+from typing import Optional, Any, Literal
 from pydantic import BaseModel, Field
 from google_auth_oauthlib.flow import Flow
 
@@ -153,6 +153,58 @@ class WebRegistrationDraft(BaseModel):
     gmail_auth_code: Optional[str] = None
 
 
+class LinkKeyIssueRequest(BaseModel):
+    feature: Literal[
+        "all",
+        "classes",
+        "notify",
+        "overrides",
+        "gmail",
+        "exam",
+    ] = "all"
+    data: WebRegistrationDraft
+
+
+def _build_feature_payload(
+    draft: WebRegistrationDraft,
+    feature: Literal["all", "classes", "notify", "overrides", "gmail", "exam"],
+    term: str = "1st",
+) -> dict[str, Any]:
+    notify = draft.notify.model_dump()
+    payload_by_feature: dict[str, dict[str, Any]] = {
+        "all": draft.model_dump(),
+        "classes": {
+            "classes": draft.classes,
+        },
+        "notify": {
+            "notify": {
+                "normal_first": notify.get("normal_first"),
+                "normal_second": notify.get("normal_second"),
+                "morning_time": notify.get("morning_time"),
+            },
+            "period_overrides": draft.period_overrides,
+        },
+        "overrides": {
+            "day_overrides": draft.day_overrides,
+            "room_overrides": draft.room_overrides,
+        },
+        "gmail": {
+            "gmail_auth_code": draft.gmail_auth_code,
+        },
+        "exam": {
+            "exam_schedules": draft.exam_schedules,
+            "exam_period_overrides": draft.exam_period_overrides,
+            "notify": {
+                "exam_first": notify.get("exam_first"),
+                "exam_second": notify.get("exam_second"),
+            },
+        },
+    }
+    out = payload_by_feature.get(feature, draft.model_dump())
+    out["_meta"] = {"feature": feature, "term": term}
+    return out
+
+
 def _validate_weekday_and_period(weekday: str, period: str) -> None:
     if weekday not in WEEKDAY_MAP:
         raise HTTPException(
@@ -229,14 +281,28 @@ async def get_public_gmail_auth_url():
 
 
 @web_app.post("/api/public/issue-link-key")
-async def issue_link_key(payload: WebRegistrationDraft):
-    """Webで登録した内容を一時キー化し、Discord 側取り込み用のキーを返す。"""
+async def issue_link_key(payload: dict[str, Any]):
+    """Webで登録した内容を機能単位キー化し、Discord 側取り込み用キーを返す。"""
     try:
-        key, expires_at = create_link_key(payload.model_dump())
+        # 互換対応: 旧形式（WebRegistrationDraft 直送）も受け付ける
+        if "data" in payload:
+            req = LinkKeyIssueRequest(**payload)
+            feature = req.feature
+            draft = req.data
+        else:
+            draft = WebRegistrationDraft(**payload)
+            feature = "all"
+
+        # Extract term from _meta if present
+        term = (payload.get("_meta") or {}).get("term") or "1st"
+
+        link_payload = _build_feature_payload(draft, feature, term)
+        key, expires_at = create_link_key(link_payload)
         return {
             "ok": True,
             "link_key": key,
             "expires_at": expires_at,
+            "feature": feature,
             "discord_command": f"/web applykey key:{key}",
         }
     except Exception as e:

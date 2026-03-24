@@ -22,19 +22,56 @@ DEFAULT_NOTIFY = {
     "exam": {"first": 30, "second": 25},
 }
 
+# Use current month to determine academic term (1st: April-September, 2nd: October-March)
+from datetime import datetime
+
+
+def get_current_term() -> str:
+    """Return "1st" or "2nd" based on current month."""
+    month = datetime.now().month
+    return "1st" if 4 <= month <= 9 else "2nd"
+
 
 def load_user_data(user_id):
     path = os.path.join(BASE_DIR, f"user_{user_id}.json")
     if not os.path.exists(path):
         return {}
     with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+        data = json.load(f)
+    # Backward compatibility: migrate old single-term structure to new structure
+    data = _migrate_user_data_to_term_aware(data)
+    return data
+
+
+def _migrate_user_data_to_term_aware(data: dict) -> dict:
+    """Migrate legacy single-term data structure to term-aware structure."""
+    # Migrate classes
+    if "classes" in data and not isinstance(data["classes"], dict):
+        classes_list = data.pop("classes", [])
+        if "classes_by_term" not in data:
+            data["classes_by_term"] = {"1st": classes_list, "2nd": []}
+    elif "classes_by_term" not in data:
+        data["classes_by_term"] = {"1st": [], "2nd": []}
+
+    # Migrate exam_schedules
+    if "exam_schedules" in data and not isinstance(data["exam_schedules"], dict):
+        exam_list = data.pop("exam_schedules", [])
+        if "exam_schedules_by_term" not in data:
+            data["exam_schedules_by_term"] = {"1st": exam_list, "2nd": []}
+    elif "exam_schedules_by_term" not in data:
+        data["exam_schedules_by_term"] = {"1st": [], "2nd": []}
+
+    return data
 
 
 def save_user_data(user_id, data):
     path = os.path.join(BASE_DIR, f"user_{user_id}.json")
+    # Clean up legacy keys before saving
+    data_to_save = dict(data)
+    data_to_save.pop("classes", None)  # Remove old single-term keys
+    data_to_save.pop("exam_schedules", None)
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
+        json.dump(data_to_save, f, indent=4, ensure_ascii=False)
 
 
 async def send_dm(user, message):

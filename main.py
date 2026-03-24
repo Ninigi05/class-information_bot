@@ -24,7 +24,14 @@ from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import Flow
 
-from utils import load_user_data, save_user_data, send_dm, send_long_dm, WEEKDAY_MAP
+from utils import (
+    load_user_data,
+    save_user_data,
+    send_dm,
+    send_long_dm,
+    WEEKDAY_MAP,
+    get_current_term,
+)
 from web_api_integration import start_web_server
 from web_link_service import consume_link_key
 
@@ -495,88 +502,101 @@ mail_group = app_commands.Group(
 
 
 def _apply_web_payload_to_user_data(user_data: dict, payload: dict) -> dict:
-    """Web で入力した下書きを user_data へ反映（上書き中心）。"""
-    classes_raw = payload.get("classes") or []
-    classes: list[dict] = []
-    for c in classes_raw:
-        wd = str(c.get("weekday", "")).strip()
-        if wd not in WEEKDAY_MAP:
-            continue
-        classes.append(
-            {
-                "day": WEEKDAY_MAP[wd],
-                "period": str(c.get("period", "")).strip(),
-                "subject": str(c.get("subject", "")).strip(),
-                "room": str(c.get("room", "")).strip(),
-            }
-        )
-    # Web 側で編集した時間割を優先する
-    user_data["classes"] = classes
+    """Web の payload に含まれる項目のみ user_data へ反映する（term-aware）。"""
+    term = (payload.get("_meta") or {}).get("term") or get_current_term()
+    user_data.setdefault("classes_by_term", {}).setdefault(term, [])
+    user_data.setdefault("exam_schedules_by_term", {}).setdefault(term, [])
 
-    # 既存の全授業に対する日付上書き（setday相当）
-    for d in payload.get("day_overrides") or []:
-        date_str = str(d.get("date", "")).strip()
-        wd = str(d.get("weekday", "")).strip()
-        if not date_str or wd not in WEEKDAY_MAP:
-            continue
-        wd_num = WEEKDAY_MAP[wd]
-        for cls in user_data.get("classes", []):
-            cls.setdefault("overrides", {})[date_str] = wd_num
-
-    # 指定時限への教室上書き（setroom相当）
-    for r in payload.get("room_overrides") or []:
-        date_str = str(r.get("date", "")).strip()
-        period = str(r.get("period", "")).strip()
-        room = str(r.get("room", "")).strip()
-        if not date_str or not period or not room:
-            continue
-        for cls in user_data.get("classes", []):
-            if str(cls.get("period")) == period:
-                cls.setdefault("room_overrides", {})[date_str] = room
-
-    # 通知設定
-    notify = payload.get("notify") or {}
-    user_data.setdefault("notify_settings", {})
-    user_data["notify_settings"]["normal"] = {
-        "first": int(notify.get("normal_first", 15)),
-        "second": int(notify.get("normal_second", 10)),
-    }
-    user_data["notify_settings"]["exam"] = {
-        "first": int(notify.get("exam_first", 30)),
-        "second": int(notify.get("exam_second", 25)),
-    }
-    user_data["morning_notice_time"] = str(notify.get("morning_time", "08:00"))
-
-    # 時限上書き
-    user_data["period_overrides"] = payload.get("period_overrides") or {}
-    user_data["exam_period_overrides"] = payload.get("exam_period_overrides") or {}
-
-    # 試験時間割（Web入力をそのまま優先）
-    schedules_out = []
-    for s in payload.get("exam_schedules") or []:
-        classes_out = []
-        for ec in s.get("classes") or []:
-            wd = str(ec.get("weekday", "")).strip()
+    if "classes" in payload:
+        classes_raw = payload.get("classes") or []
+        classes: list[dict] = []
+        for c in classes_raw:
+            wd = str(c.get("weekday", "")).strip()
             if wd not in WEEKDAY_MAP:
                 continue
-            classes_out.append(
+            classes.append(
                 {
                     "day": WEEKDAY_MAP[wd],
-                    "period": str(ec.get("period", "")).strip(),
-                    "time": ec.get("time"),
-                    "subject": str(ec.get("subject", "")).strip(),
-                    "room": str(ec.get("room", "")).strip(),
+                    "period": str(c.get("period", "")).strip(),
+                    "subject": str(c.get("subject", "")).strip(),
+                    "room": str(c.get("room", "")).strip(),
                 }
             )
-        schedules_out.append(
-            {
-                "name": str(s.get("name", "")).strip(),
-                "start": str(s.get("start", "")).strip(),
-                "end": str(s.get("end", "")).strip(),
-                "classes": classes_out,
-            }
-        )
-    user_data["exam_schedules"] = schedules_out
+        user_data["classes_by_term"][term] = classes
+
+    # 既存の全授業に対する日付上書き（setday相当）
+    if "day_overrides" in payload:
+        for d in payload.get("day_overrides") or []:
+            date_str = str(d.get("date", "")).strip()
+            wd = str(d.get("weekday", "")).strip()
+            if not date_str or wd not in WEEKDAY_MAP:
+                continue
+            wd_num = WEEKDAY_MAP[wd]
+            for cls in user_data.get("classes_by_term", {}).get(term, []):
+                cls.setdefault("overrides", {})[date_str] = wd_num
+
+    # 指定時限への教室上書き（setroom相当）
+    if "room_overrides" in payload:
+        for r in payload.get("room_overrides") or []:
+            date_str = str(r.get("date", "")).strip()
+            period = str(r.get("period", "")).strip()
+            room = str(r.get("room", "")).strip()
+            if not date_str or not period or not room:
+                continue
+            for cls in user_data.get("classes_by_term", {}).get(term, []):
+                if str(cls.get("period")) == period:
+                    cls.setdefault("room_overrides", {})[date_str] = room
+
+    # 通知設定
+    if "notify" in payload:
+        notify = payload.get("notify") or {}
+        user_data.setdefault("notify_settings", {})
+        normal_cfg = user_data["notify_settings"].get("normal") or {}
+        exam_cfg = user_data["notify_settings"].get("exam") or {}
+        user_data["notify_settings"]["normal"] = {
+            "first": int(notify.get("normal_first", normal_cfg.get("first", 15))),
+            "second": int(notify.get("normal_second", normal_cfg.get("second", 10))),
+        }
+        user_data["notify_settings"]["exam"] = {
+            "first": int(notify.get("exam_first", exam_cfg.get("first", 30))),
+            "second": int(notify.get("exam_second", exam_cfg.get("second", 25))),
+        }
+        if "morning_time" in notify:
+            user_data["morning_notice_time"] = str(notify.get("morning_time", "08:00"))
+
+    # 時限上書き
+    if "period_overrides" in payload:
+        user_data["period_overrides"] = payload.get("period_overrides") or {}
+    if "exam_period_overrides" in payload:
+        user_data["exam_period_overrides"] = payload.get("exam_period_overrides") or {}
+
+    # 試験時間割（Web入力をそのまま優先）
+    if "exam_schedules" in payload:
+        schedules_out = []
+        for s in payload.get("exam_schedules") or []:
+            classes_out = []
+            for ec in s.get("classes") or []:
+                wd = str(ec.get("weekday", "")).strip()
+                if wd not in WEEKDAY_MAP:
+                    continue
+                classes_out.append(
+                    {
+                        "day": WEEKDAY_MAP[wd],
+                        "period": str(ec.get("period", "")).strip(),
+                        "time": ec.get("time"),
+                        "subject": str(ec.get("subject", "")).strip(),
+                        "room": str(ec.get("room", "")).strip(),
+                    }
+                )
+            schedules_out.append(
+                {
+                    "name": str(s.get("name", "")).strip(),
+                    "start": str(s.get("start", "")).strip(),
+                    "end": str(s.get("end", "")).strip(),
+                    "classes": classes_out,
+                }
+            )
+        user_data["exam_schedules_by_term"][term] = schedules_out
     return user_data
 
 
@@ -606,6 +626,31 @@ async def _apply_gmail_auth_code_from_web(user_id: int, code: str) -> bool:
 web_group = app_commands.Group(name="web", description="Web登録データを取り込み")
 
 
+def _enable_user_install_support(tree: app_commands.CommandTree) -> None:
+    """Enable user-install + DM contexts for all top-level app commands."""
+    for cmd in tree.get_commands():
+        try:
+            app_commands.allowed_installs(guilds=True, users=True)(cmd)
+        except Exception as e:
+            logger.warning(
+                "[WARN] allowed_installs の適用に失敗しました: command=%s error=%s",
+                getattr(cmd, "qualified_name", getattr(cmd, "name", "unknown")),
+                e,
+            )
+        try:
+            app_commands.allowed_contexts(
+                guilds=True,
+                dms=True,
+                private_channels=True,
+            )(cmd)
+        except Exception as e:
+            logger.warning(
+                "[WARN] allowed_contexts の適用に失敗しました: command=%s error=%s",
+                getattr(cmd, "qualified_name", getattr(cmd, "name", "unknown")),
+                e,
+            )
+
+
 @web_group.command(name="applykey", description="Webで発行した連携キーを取り込みます")
 @app_commands.describe(key="Web画面で発行した連携キー")
 async def web_applykey(interaction: discord.Interaction, key: str):
@@ -621,6 +666,15 @@ async def web_applykey(interaction: discord.Interaction, key: str):
 
     try:
         user_data = load_user_data(user_id)
+        feature = ((payload.get("_meta") or {}).get("feature") or "all").strip()
+        feature_names = {
+            "all": "全体",
+            "classes": "通常時間割",
+            "notify": "通知設定",
+            "overrides": "上書き設定",
+            "gmail": "Gmail認証",
+            "exam": "試験設定",
+        }
         user_data = _apply_web_payload_to_user_data(user_data, payload)
         save_user_data(user_id, user_data)
 
@@ -631,8 +685,9 @@ async def web_applykey(interaction: discord.Interaction, key: str):
 
         lines = [
             "Web登録データを反映しました。",
-            f"- 授業数: {len(user_data.get('classes', []))}",
-            f"- 試験時間割数: {len(user_data.get('exam_schedules', []))}",
+            f"- 反映対象: {feature_names.get(feature, feature)} ({term}学期)",
+            f"- 授業数: {len(user_data.get('classes_by_term', {}).get(term, []))}",
+            f"- 試験時間割数: {len(user_data.get('exam_schedules_by_term', {}).get(term, []))}",
             f"- Gmail認証反映: {'成功' if gmail_ok else ('未実施' if not gmail_code else '失敗')}",
         ]
         await send_dm(interaction.user, "\n".join(lines))
@@ -866,6 +921,9 @@ class ClassBot(commands.Bot):
                     )
                 except Exception:
                     pass
+
+        # ユーザーインストール（User Install）とDM実行を許可
+        _enable_user_install_support(self.tree)
 
 
 bot = ClassBot()

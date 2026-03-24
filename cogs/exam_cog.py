@@ -7,6 +7,7 @@ from utils import (
     save_user_data,
     send_dm,
     send_long_dm,
+    get_current_term,
     WEEKDAYS,
     WEEKDAY_MAP,
     PERIOD_TO_TIME,
@@ -24,7 +25,8 @@ class ExamCog(commands.GroupCog, name="exam"):
     ):
         user_id = interaction.user.id
         data = load_user_data(user_id)
-        schedules = data.get("exam_schedules", []) or []
+        term = get_current_term()
+        schedules = data.get("exam_schedules_by_term", {}).get(term, []) or []
         choices = []
         for s in schedules:
             name = s.get("name", "")
@@ -51,8 +53,9 @@ class ExamCog(commands.GroupCog, name="exam"):
     ):
         user_id = interaction.user.id
         data = load_user_data(user_id)
+        term = get_current_term()
         subjects = []
-        for c in data.get("classes", []) or []:
+        for c in data.get("classes_by_term", {}).get(term, []) or []:
             s = str(c.get("subject", "")).strip()
             if s and current in s:
                 subjects.append(s)
@@ -73,8 +76,9 @@ class ExamCog(commands.GroupCog, name="exam"):
     async def room_autocomplete(self, interaction: discord.Interaction, current: str):
         user_id = interaction.user.id
         data = load_user_data(user_id)
+        term = get_current_term()
         rooms = []
-        for c in data.get("classes", []) or []:
+        for c in data.get("classes_by_term", {}).get(term, []) or []:
             r = str(c.get("room", "")).strip()
             if r and current in r:
                 rooms.append(r)
@@ -146,14 +150,15 @@ class ExamCog(commands.GroupCog, name="exam"):
             return
         user_id = interaction.user.id
         data = load_user_data(user_id)
-        data.setdefault("exam_schedules", [])
-        for s in data["exam_schedules"]:
+        term = get_current_term()
+        data.setdefault("exam_schedules_by_term", {}).setdefault(term, [])
+        for s in data["exam_schedules_by_term"][term]:
             if s.get("name") == name:
                 await interaction.followup.send(
                     "同名の試験時間割が既に存在します。", ephemeral=True
                 )
                 return
-        data["exam_schedules"].append(
+        data["exam_schedules_by_term"][term].append(
             {"name": name, "start": start, "end": end, "classes": []}
         )
         save_user_data(user_id, data)
@@ -171,12 +176,14 @@ class ExamCog(commands.GroupCog, name="exam"):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
         data = load_user_data(user_id)
-        before = len(data.get("exam_schedules", []) or [])
-        data["exam_schedules"] = [
-            s for s in data.get("exam_schedules", []) if s.get("name") != name
+        term = get_current_term()
+        before = len(data.get("exam_schedules_by_term", {}).get(term, []) or [])
+        data.setdefault("exam_schedules_by_term", {}).setdefault(term, [])
+        data["exam_schedules_by_term"][term] = [
+            s for s in data.get("exam_schedules_by_term", {}).get(term, []) if s.get("name") != name
         ]
         save_user_data(user_id, data)
-        removed = before - len(data.get("exam_schedules", []) or [])
+        removed = before - len(data.get("exam_schedules_by_term", {}).get(term, []) or [])
         await send_dm(
             interaction.user, f"🗑️ 試験時間割「{name}」を削除しました（{removed}件）。"
         )
@@ -189,7 +196,8 @@ class ExamCog(commands.GroupCog, name="exam"):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
         data = load_user_data(user_id)
-        schedules = data.get("exam_schedules", []) or []
+        term = get_current_term()
+        schedules = data.get("exam_schedules_by_term", {}).get(term, []) or []
         if not schedules:
             await send_dm(interaction.user, "試験時間割は登録されていません。")
             await interaction.followup.send(
@@ -215,7 +223,8 @@ class ExamCog(commands.GroupCog, name="exam"):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
         data = load_user_data(user_id)
-        schedules = data.get("exam_schedules", []) or []
+        term = get_current_term()
+        schedules = data.get("exam_schedules_by_term", {}).get(term, []) or []
         target = next((s for s in schedules if s.get("name") == name), None)
         if not target:
             await interaction.followup.send(
@@ -279,7 +288,8 @@ class ExamCog(commands.GroupCog, name="exam"):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
         data = load_user_data(user_id)
-        schedules = data.get("exam_schedules", []) or []
+        term = get_current_term()
+        schedules = data.get("exam_schedules_by_term", {}).get(term, []) or []
         target = next((s for s in schedules if s.get("name") == name), None)
         if not target:
             await interaction.followup.send(
@@ -321,7 +331,8 @@ class ExamCog(commands.GroupCog, name="exam"):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
         data = load_user_data(user_id)
-        schedules = data.get("exam_schedules", []) or []
+        term = get_current_term()
+        schedules = data.get("exam_schedules_by_term", {}).get(term, []) or []
         target = next((s for s in schedules if s.get("name") == name), None)
         if not target:
             await interaction.followup.send(
