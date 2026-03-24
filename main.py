@@ -951,6 +951,48 @@ bot = ClassBot()
 
 
 @bot.event
+async def on_member_join(member: discord.Member):
+    """
+    新しくサーバーに参加したメンバーに使い方をDMで送信し、
+    その後メンバーをサーバーから削除（キック）する。
+    """
+    try:
+        # 使い方説明メッセージ
+        welcome_msg = (
+            "こんにちは！授業情報Botへようこそ。\n\n"
+            "このBotはサーバーを窓口として、あなたの授業管理をサポートします。\n\n"
+            "【ご利用の流れ】\n"
+            "1. サーバーのテキストチャンネルで `/help` コマンドを実行\n"
+            "2. ヘルプとコマンド一覧がDMで届きます\n"
+            "3. 以降、すべてのやり取りはDMで行えます\n\n"
+            "【主な機能】\n"
+            "• /class add - 授業を登録\n"
+            "• /class list - 登録授業一覧（DM）\n"
+            "• /exam ... - 試験時間割管理\n"
+            "• /notify ... - 通知設定\n"
+            "• /web applykey - Web登録データの反映\n"
+            "• その他多数\n\n"
+            "コマンドは、サーバー内のテキストチャンネル、またはBotのDМで使用できます。\n"
+            "詳細は /help を実行してご確認ください。"
+        )
+        await member.send(welcome_msg)
+        logger.info(f"[INFO] 新メンバーへDM送信完了: {member.name} ({member.id})")
+    except discord.Forbidden:
+        logger.warning(f"[WARN] メンバーへのDM送信に失敗（DM受信拒否）: {member.name} ({member.id})")
+    except Exception as e:
+        logger.exception(f"[ERROR] on_member_join中に例外発生: {e}")
+    
+    # メンバーをサーバーから削除
+    try:
+        await member.kick(reason="Welcome DM sent. Kicking per bot setup.")
+        logger.info(f"[INFO] メンバーをキック: {member.name} ({member.id})")
+    except discord.Forbidden:
+        logger.error(f"[ERROR] メンバーのキックに失敗（権限不足）: {member.name} ({member.id})")
+    except Exception as e:
+        logger.exception(f"[ERROR] メンバーキック中に例外発生: {e}")
+
+
+@bot.event
 async def on_ready():
     logger.info(f"Bot 起動完了: {bot.user}")
     try:
