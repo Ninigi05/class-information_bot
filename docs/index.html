@@ -265,7 +265,10 @@
       } catch (e) {
         throw new Error(`バックエンドに接続できません: ${BACKEND}`);
       }
-      if (!res.ok) throw new Error("Gmail認証URLの取得に失敗しました");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || "Gmail認証URLの取得に失敗しました");
+      }
       return res.json();
     }
 

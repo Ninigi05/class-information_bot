@@ -13,7 +13,13 @@ def check_env():
     print("-" * 40)
     
     required_vars = ["DISCORD_TOKEN"]
-    optional_vars = ["GUILD_ID", "API_KEY", "WEB_HOST", "WEB_PORT"]
+    optional_vars = [
+        "GUILD_ID",
+        "API_KEY",
+        "WEB_HOST",
+        "WEB_PORT",
+        "GMAIL_CREDENTIALS",
+    ]
     
     missing = []
     for var in required_vars:
@@ -69,6 +75,21 @@ def check_files():
             print(f"✅ {file}")
         else:
             print(f"⚠️  {file}: 見つかりません")
+
+    # Gmail OAuth client secret check
+    gmail_credentials = (os.getenv("GMAIL_CREDENTIALS") or "").strip()
+    if gmail_credentials:
+        candidate_paths = [
+            gmail_credentials,
+            os.path.join(os.getcwd(), gmail_credentials),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), gmail_credentials),
+        ]
+        if any(os.path.exists(p) for p in candidate_paths):
+            print(f"✅ GMAIL_CREDENTIALS ファイル: {gmail_credentials}")
+        else:
+            print(f"⚠️  GMAIL_CREDENTIALS ファイルが見つかりません: {gmail_credentials}")
+    else:
+        print("ℹ️  GMAIL_CREDENTIALS: 未設定（Gmail連携を使わない場合は問題ありません）")
     
     if missing:
         print(f"\n❌ 必須ファイルが見つかりません: {', '.join(missing)}")

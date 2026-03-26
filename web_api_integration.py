@@ -232,11 +232,16 @@ def _resolve_gmail_credentials_path() -> str:
         return ""
     if os.path.isabs(env_val):
         return env_val
-    local = os.path.join(os.getcwd(), env_val)
-    if os.path.exists(local):
-        return local
-    app_path = os.path.join("/app", env_val)
-    return app_path
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(os.getcwd(), env_val),
+        os.path.join(script_dir, env_val),
+        os.path.join("/app", env_val),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    return os.path.join(script_dir, env_val)
 
 
 # ============ ヘルスチェック ============

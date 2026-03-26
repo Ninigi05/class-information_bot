@@ -76,10 +76,19 @@ def _resolve_gmail_credentials() -> str:
         return ""
     if os.path.isabs(env_val):
         return env_val
-    local = os.path.join(os.getcwd(), env_val)
-    if os.path.exists(local):
-        return local
-    return os.path.join("/app", env_val)
+    # Search both current working directory and script directory
+    # so startup location differences do not break OAuth setup.
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(os.getcwd(), env_val),
+        os.path.join(script_dir, env_val),
+        os.path.join("/app", env_val),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    # Return the script-dir candidate for clearer error messages downstream.
+    return os.path.join(script_dir, env_val)
 
 
 GMAIL_CREDENTIALS = _resolve_gmail_credentials()
