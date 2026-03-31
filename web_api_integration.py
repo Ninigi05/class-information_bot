@@ -9,6 +9,7 @@ from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import os
+import glob
 from typing import Optional, Any, Literal
 from pydantic import BaseModel, Field
 from google_auth_oauthlib.flow import Flow
@@ -250,20 +251,33 @@ def _find_class_index(classes: list[dict], day: int, period: str) -> int:
 def _resolve_gmail_credentials_path() -> str:
     """環境差分（ローカル/コンテナ）を吸収して credentials パスを解決。"""
     env_val = (os.getenv("GMAIL_CREDENTIALS") or "").strip()
-    if not env_val:
-        return ""
-    if os.path.isabs(env_val):
-        return env_val
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    candidates = [
-        os.path.join(os.getcwd(), env_val),
-        os.path.join(script_dir, env_val),
-        os.path.join("/app", env_val),
+    search_roots = [os.getcwd(), script_dir, "/app"]
+
+    if env_val:
+        if os.path.isabs(env_val):
+            return env_val
+        candidates = [os.path.join(root, env_val) for root in search_roots]
+        for path in candidates:
+            if os.path.exists(path):
+                return path
+
+    # Fallback autodiscovery for common Google OAuth client secret filenames.
+    patterns = [
+        "client_secret*.json",
+        "credentials.json",
+        "gmail_credentials.json",
     ]
-    for path in candidates:
-        if os.path.exists(path):
-            return path
-    return os.path.join(script_dir, env_val)
+    for root in search_roots:
+        for pattern in patterns:
+            matched = sorted(glob.glob(os.path.join(root, pattern)))
+            if matched:
+                logger.info("GMAIL_CREDENTIALS を自動検出: %s", matched[0])
+                return matched[0]
+
+    if env_val:
+        return os.path.join(script_dir, env_val)
+    return ""
 
 
 # ============ ヘルスチェック ============

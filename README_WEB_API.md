@@ -194,6 +194,7 @@ CORS_ORIGIN_GITHUB_PAGES=https://username.github.io
 - [詳細セットアップガイド](WEB_API_SETUP.md)
 - [Web API 統合コード](web_api_integration.py)
 - [ビューアー HTML](schedule_viewer.html)
+- [Windows Quick Tunnel 自動運用](docs/quick_tunnel_windows.md)
 
 ## ❓ よくある質問
 

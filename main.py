@@ -2,6 +2,7 @@ import os
 import base64
 import traceback
 import logging
+import glob
 from logging.handlers import RotatingFileHandler
 import discord
 import unicodedata
@@ -73,23 +74,36 @@ def now_local() -> datetime:
 
 def _resolve_gmail_credentials() -> str:
     env_val = (os.getenv("GMAIL_CREDENTIALS") or "").strip()
-    if not env_val:
-        return ""
-    if os.path.isabs(env_val):
-        return env_val
     # Search both current working directory and script directory
     # so startup location differences do not break OAuth setup.
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    candidates = [
-        os.path.join(os.getcwd(), env_val),
-        os.path.join(script_dir, env_val),
-        os.path.join("/app", env_val),
+    search_roots = [os.getcwd(), script_dir, "/app"]
+
+    if env_val:
+        if os.path.isabs(env_val):
+            return env_val
+        candidates = [os.path.join(root, env_val) for root in search_roots]
+        for path in candidates:
+            if os.path.exists(path):
+                return path
+
+    # Fallback autodiscovery for common Google OAuth client secret filenames.
+    patterns = [
+        "client_secret*.json",
+        "credentials.json",
+        "gmail_credentials.json",
     ]
-    for path in candidates:
-        if os.path.exists(path):
-            return path
-    # Return the script-dir candidate for clearer error messages downstream.
-    return os.path.join(script_dir, env_val)
+    for root in search_roots:
+        for pattern in patterns:
+            matched = sorted(glob.glob(os.path.join(root, pattern)))
+            if matched:
+                logger.info("[INFO] GMAIL_CREDENTIALS を自動検出: %s", matched[0])
+                return matched[0]
+
+    if env_val:
+        # Return the script-dir candidate for clearer error messages downstream.
+        return os.path.join(script_dir, env_val)
+    return ""
 
 
 GMAIL_CREDENTIALS = _resolve_gmail_credentials()

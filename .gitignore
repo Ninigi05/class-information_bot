@@ -15,3 +15,6 @@ __pycache__/
 
 # ログファイル
 *.log
+
+# 実行時生成ファイル
+runtime/quick_tunnel_url.txt
