@@ -441,12 +441,15 @@
       };
 
       try {
-        const res = await fetch(`${BACKEND}/api/link-key/issue-link-key`, {
+        const res = await fetch(`${BACKEND}/api/public/issue-link-key`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
-        if (!res.ok) throw new Error(`API error: ${res.status}`);
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || `API error: ${res.status}`);
+        }
         const result = await res.json();
         showResult(feature, result);
       } catch (e) {

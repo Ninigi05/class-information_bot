@@ -8,6 +8,7 @@ from threading import Thread
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 import os
 import glob
 from typing import Optional, Any, Literal
@@ -16,7 +17,6 @@ from google_auth_oauthlib.flow import Flow
 
 from utils import (
     load_user_data,
-    save_user_data,
     WEEKDAYS,
     PERIOD_TO_TIME,
     WEEKDAY_MAP,
@@ -225,7 +225,8 @@ def _build_feature_payload(
     }
     out = payload_by_feature.get(feature, draft_all)
     out["_meta"] = {"feature": feature, "term": normalized_term}
-    return out
+    # Persisted link payload must be JSON-serializable.
+    return jsonable_encoder(out)
 
 
 def _validate_weekday_and_period(weekday: str, period: str) -> None:
