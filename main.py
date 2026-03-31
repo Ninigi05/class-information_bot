@@ -33,6 +33,8 @@ from utils import (
     WEEKDAY_MAP,
     get_current_term,
     normalize_term_key,
+    TERM_FIRST,
+    TERM_SECOND,
 )
 from web_api_integration import start_web_server
 from web_link_service import consume_link_key
@@ -533,12 +535,19 @@ mail_group = app_commands.Group(
 
 def _apply_web_payload_to_user_data(user_data: dict, payload: dict) -> dict:
     """Web の payload に含まれる項目のみ user_data へ反映する（term-aware）。"""
-    term = normalize_term_key((payload.get("_meta") or {}).get("term"))
+    meta = payload.get("_meta") or {}
+    feature = (meta.get("feature") or "all").strip()
+    term = normalize_term_key(meta.get("term"))
+    target_terms = [TERM_FIRST, TERM_SECOND] if feature == "all" else [term]
+
     user_data.setdefault("classes_by_term", {}).setdefault(term, [])
     user_data.setdefault("exam_schedules_by_term", {}).setdefault(term, [])
 
-    if "classes" in payload:
-        classes_raw = payload.get("classes") or []
+    for target_term in target_terms:
+        user_data.setdefault("classes_by_term", {}).setdefault(target_term, [])
+        user_data.setdefault("exam_schedules_by_term", {}).setdefault(target_term, [])
+
+    def _convert_classes(classes_raw: list) -> list[dict]:
         classes: list[dict] = []
         for c in classes_raw:
             wd = str(c.get("weekday", "")).strip()
@@ -552,7 +561,47 @@ def _apply_web_payload_to_user_data(user_data: dict, payload: dict) -> dict:
                     "room": str(c.get("room", "")).strip(),
                 }
             )
-        user_data["classes_by_term"][term] = classes
+        return classes
+
+    def _convert_exam_schedules(schedules_raw: list) -> list[dict]:
+        schedules_out = []
+        for s in schedules_raw:
+            classes_out = []
+            for ec in s.get("classes") or []:
+                wd = str(ec.get("weekday", "")).strip()
+                if wd not in WEEKDAY_MAP:
+                    continue
+                classes_out.append(
+                    {
+                        "day": WEEKDAY_MAP[wd],
+                        "period": str(ec.get("period", "")).strip(),
+                        "time": ec.get("time"),
+                        "subject": str(ec.get("subject", "")).strip(),
+                        "room": str(ec.get("room", "")).strip(),
+                    }
+                )
+            schedules_out.append(
+                {
+                    "name": str(s.get("name", "")).strip(),
+                    "start": str(s.get("start", "")).strip(),
+                    "end": str(s.get("end", "")).strip(),
+                    "classes": classes_out,
+                }
+            )
+        return schedules_out
+
+    if "classes_by_term" in payload and isinstance(payload.get("classes_by_term"), dict):
+        for raw_term, classes_raw in (payload.get("classes_by_term") or {}).items():
+            target_term = normalize_term_key(raw_term)
+            if target_term not in {TERM_FIRST, TERM_SECOND}:
+                continue
+            user_data.setdefault("classes_by_term", {}).setdefault(target_term, [])
+            user_data["classes_by_term"][target_term] = _convert_classes(classes_raw or [])
+    elif "classes" in payload:
+        classes_raw = payload.get("classes") or []
+        classes = _convert_classes(classes_raw)
+        for target_term in target_terms:
+            user_data["classes_by_term"][target_term] = list(classes)
 
     # 既存の全授業に対する日付上書き（setday相当）
     if "day_overrides" in payload:
@@ -562,8 +611,9 @@ def _apply_web_payload_to_user_data(user_data: dict, payload: dict) -> dict:
             if not date_str or wd not in WEEKDAY_MAP:
                 continue
             wd_num = WEEKDAY_MAP[wd]
-            for cls in user_data.get("classes_by_term", {}).get(term, []):
-                cls.setdefault("overrides", {})[date_str] = wd_num
+            for target_term in target_terms:
+                for cls in user_data.get("classes_by_term", {}).get(target_term, []):
+                    cls.setdefault("overrides", {})[date_str] = wd_num
 
     # 指定時限への教室上書き（setroom相当）
     if "room_overrides" in payload:
@@ -573,9 +623,10 @@ def _apply_web_payload_to_user_data(user_data: dict, payload: dict) -> dict:
             room = str(r.get("room", "")).strip()
             if not date_str or not period or not room:
                 continue
-            for cls in user_data.get("classes_by_term", {}).get(term, []):
-                if str(cls.get("period")) == period:
-                    cls.setdefault("room_overrides", {})[date_str] = room
+            for target_term in target_terms:
+                for cls in user_data.get("classes_by_term", {}).get(target_term, []):
+                    if str(cls.get("period")) == period:
+                        cls.setdefault("room_overrides", {})[date_str] = room
 
     # 通知設定
     if "notify" in payload:
@@ -601,32 +652,21 @@ def _apply_web_payload_to_user_data(user_data: dict, payload: dict) -> dict:
         user_data["exam_period_overrides"] = payload.get("exam_period_overrides") or {}
 
     # 試験時間割（Web入力をそのまま優先）
-    if "exam_schedules" in payload:
-        schedules_out = []
-        for s in payload.get("exam_schedules") or []:
-            classes_out = []
-            for ec in s.get("classes") or []:
-                wd = str(ec.get("weekday", "")).strip()
-                if wd not in WEEKDAY_MAP:
-                    continue
-                classes_out.append(
-                    {
-                        "day": WEEKDAY_MAP[wd],
-                        "period": str(ec.get("period", "")).strip(),
-                        "time": ec.get("time"),
-                        "subject": str(ec.get("subject", "")).strip(),
-                        "room": str(ec.get("room", "")).strip(),
-                    }
-                )
-            schedules_out.append(
-                {
-                    "name": str(s.get("name", "")).strip(),
-                    "start": str(s.get("start", "")).strip(),
-                    "end": str(s.get("end", "")).strip(),
-                    "classes": classes_out,
-                }
+    if "exam_schedules_by_term" in payload and isinstance(
+        payload.get("exam_schedules_by_term"), dict
+    ):
+        for raw_term, schedules_raw in (payload.get("exam_schedules_by_term") or {}).items():
+            target_term = normalize_term_key(raw_term)
+            if target_term not in {TERM_FIRST, TERM_SECOND}:
+                continue
+            user_data.setdefault("exam_schedules_by_term", {}).setdefault(target_term, [])
+            user_data["exam_schedules_by_term"][target_term] = _convert_exam_schedules(
+                schedules_raw or []
             )
-        user_data["exam_schedules_by_term"][term] = schedules_out
+    elif "exam_schedules" in payload:
+        schedules_out = _convert_exam_schedules(payload.get("exam_schedules") or [])
+        for target_term in target_terms:
+            user_data["exam_schedules_by_term"][target_term] = list(schedules_out)
     return user_data
 
 
@@ -868,8 +908,8 @@ class ClassBot(commands.Bot):
                 "• /class add weekday period subject room\n  → 授業を登録します"
             )
             lines.append("• /class remove weekday period\n  → 授業を削除します")
-            lines.append("• /class list\n  → 登録授業一覧をDMで受け取ります")
-            lines.append("• /class table\n  → 時間割表形式で表示します")
+            lines.append("• /class list [term]\n  → 登録授業一覧をDMで受け取ります（term: 前期/後期）")
+            lines.append("• /class table [term]\n  → 時間割表形式で表示します（term: 前期/後期）")
             lines.append(
                 "• /class setroom date period new_room\n  → 指定日の教室を変更します"
             )

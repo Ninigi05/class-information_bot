@@ -15,6 +15,9 @@ from utils import (
     WEEKDAYS,
     WEEKDAY_MAP,
     PERIOD_TO_TIME,
+    TERM_FIRST,
+    TERM_SECOND,
+    normalize_term_key,
 )
 
 
@@ -34,6 +37,10 @@ class ClassCog(commands.GroupCog, name="class"):
             for p in PERIOD_TO_TIME.keys()
             if current in p
         ]
+
+    async def term_autocomplete(self, interaction: discord.Interaction, current: str):
+        terms = [TERM_FIRST, TERM_SECOND]
+        return [app_commands.Choice(name=t, value=t) for t in terms if current in t]
 
     async def subject_autocomplete(
         self, interaction: discord.Interaction, current: str
@@ -159,13 +166,17 @@ class ClassCog(commands.GroupCog, name="class"):
     @app_commands.command(
         name="table", description="授業一覧を時間割表形式で表示します"
     )
-    async def class_table(self, interaction: discord.Interaction):
+    @app_commands.describe(term="対象学期（前期/後期、未指定時は現在の学期）")
+    @app_commands.autocomplete(term=term_autocomplete)
+    async def class_table(
+        self, interaction: discord.Interaction, term: str | None = None
+    ):
         data = load_user_data(interaction.user.id)
-        term = get_current_term()
-        classes = data.get("classes_by_term", {}).get(term, [])
+        selected_term = normalize_term_key(term) if term else get_current_term()
+        classes = data.get("classes_by_term", {}).get(selected_term, [])
         if not classes:
             await interaction.response.send_message(
-                "登録されている授業はありません。", ephemeral=True
+                f"{selected_term}の登録授業はありません。", ephemeral=True
             )
             return
 
@@ -186,7 +197,7 @@ class ClassCog(commands.GroupCog, name="class"):
             body += f"{p} |" + "|".join(rows) + "\n"
 
         await interaction.response.send_message(
-            f"```\n{header}{line}{body}```", ephemeral=True
+            f"{selected_term} の時間割\n```\n{header}{line}{body}```", ephemeral=True
         )
 
     @app_commands.command(
@@ -270,14 +281,18 @@ class ClassCog(commands.GroupCog, name="class"):
     @app_commands.command(
         name="list", description="登録授業（曜日・時限順）をDMで送ります"
     )
-    async def class_list(self, interaction: discord.Interaction):
+    @app_commands.describe(term="対象学期（前期/後期、未指定時は現在の学期）")
+    @app_commands.autocomplete(term=term_autocomplete)
+    async def class_list(
+        self, interaction: discord.Interaction, term: str | None = None
+    ):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
         data = load_user_data(user_id)
-        term = get_current_term()
-        classes = data.get("classes_by_term", {}).get(term, []) or []
+        selected_term = normalize_term_key(term) if term else get_current_term()
+        classes = data.get("classes_by_term", {}).get(selected_term, []) or []
         if not classes:
-            await send_dm(interaction.user, "登録授業はありません。")
+            await send_dm(interaction.user, f"{selected_term}の登録授業はありません。")
             await interaction.followup.send(
                 "DMを送信しました（授業なし）。", ephemeral=True
             )
@@ -342,7 +357,8 @@ class ClassCog(commands.GroupCog, name="class"):
 
         try:
             await interaction.user.send(
-                content="登録授業一覧です。", file=discord.File(img_path)
+                content=f"{selected_term}の登録授業一覧です。",
+                file=discord.File(img_path),
             )
         finally:
             if os.path.exists(img_path):
