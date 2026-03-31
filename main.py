@@ -859,6 +859,7 @@ async def mail_fetch(interaction: discord.Interaction):
 class ClassBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
+        intents.members = True
         intents.message_content = True
         super().__init__(command_prefix="!", intents=intents)
         # Ensure all app commands are user-installable and executable in DMs by default.
@@ -1063,6 +1064,11 @@ async def on_member_join(member: discord.Member):
 @bot.event
 async def on_ready():
     logger.info(f"Bot 起動完了: {bot.user}")
+    logger.info(
+        "[INFO] Intents: members=%s message_content=%s",
+        bool(getattr(bot.intents, "members", False)),
+        bool(getattr(bot.intents, "message_content", False)),
+    )
     try:
         synced_global = await bot.tree.sync()
         logger.info(f"グローバルにコマンド同期: {len(synced_global)} 件")
