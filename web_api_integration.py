@@ -13,7 +13,16 @@ from typing import Optional, Any, Literal
 from pydantic import BaseModel, Field
 from google_auth_oauthlib.flow import Flow
 
-from utils import load_user_data, save_user_data, WEEKDAYS, PERIOD_TO_TIME, WEEKDAY_MAP
+from utils import (
+    load_user_data,
+    save_user_data,
+    WEEKDAYS,
+    PERIOD_TO_TIME,
+    WEEKDAY_MAP,
+    TERM_FIRST,
+    TERM_SECOND,
+    normalize_term_key,
+)
 from api_security import verify_api_key
 from web_link_service import create_link_key
 
@@ -144,6 +153,7 @@ class WebExamScheduleDraft(BaseModel):
 
 class WebRegistrationDraft(BaseModel):
     classes: list[WebClassDraft] = Field(default_factory=list)
+    classes_by_term: dict[str, list[WebClassDraft]] = Field(default_factory=dict)
     period_overrides: dict[str, str] = Field(default_factory=dict)
     notify: NotifyDraft = Field(default_factory=NotifyDraft)
     day_overrides: list[DayOverrideDraft] = Field(default_factory=list)
@@ -168,13 +178,25 @@ class LinkKeyIssueRequest(BaseModel):
 def _build_feature_payload(
     draft: WebRegistrationDraft,
     feature: Literal["all", "classes", "notify", "overrides", "gmail", "exam"],
-    term: str = "1st",
+    term: str = TERM_FIRST,
 ) -> dict[str, Any]:
+    normalized_term = normalize_term_key(term)
+    classes_for_term = list(draft.classes)
+    if not classes_for_term and isinstance(draft.classes_by_term, dict):
+        classes_for_term = (
+            draft.classes_by_term.get(normalized_term)
+            or draft.classes_by_term.get("1st" if normalized_term == TERM_FIRST else "2nd")
+            or []
+        )
+
     notify = draft.notify.model_dump()
+    draft_all = draft.model_dump()
+    draft_all["classes"] = classes_for_term
+
     payload_by_feature: dict[str, dict[str, Any]] = {
-        "all": draft.model_dump(),
+        "all": draft_all,
         "classes": {
-            "classes": draft.classes,
+            "classes": classes_for_term,
         },
         "notify": {
             "notify": {
@@ -200,8 +222,8 @@ def _build_feature_payload(
             },
         },
     }
-    out = payload_by_feature.get(feature, draft.model_dump())
-    out["_meta"] = {"feature": feature, "term": term}
+    out = payload_by_feature.get(feature, draft_all)
+    out["_meta"] = {"feature": feature, "term": normalized_term}
     return out
 
 
@@ -299,7 +321,7 @@ async def issue_link_key(payload: dict[str, Any]):
             feature = "all"
 
         # Extract term from _meta if present
-        term = (payload.get("_meta") or {}).get("term") or "1st"
+        term = normalize_term_key((payload.get("_meta") or {}).get("term") or TERM_FIRST)
 
         link_payload = _build_feature_payload(draft, feature, term)
         key, expires_at = create_link_key(link_payload)

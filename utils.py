@@ -22,14 +22,33 @@ DEFAULT_NOTIFY = {
     "exam": {"first": 30, "second": 25},
 }
 
-# Use current month to determine academic term (1st: April-September, 2nd: October-March)
+TERM_FIRST = "前期"
+TERM_SECOND = "後期"
+TERM_ALIASES = {
+    "1st": TERM_FIRST,
+    "first": TERM_FIRST,
+    "前期": TERM_FIRST,
+    "2nd": TERM_SECOND,
+    "second": TERM_SECOND,
+    "後期": TERM_SECOND,
+}
+
+# Use current month to determine academic term (前期: April-September, 後期: October-March)
 from datetime import datetime
 
 
 def get_current_term() -> str:
-    """Return "1st" or "2nd" based on current month."""
+    """Return "前期" or "後期" based on current month."""
     month = datetime.now().month
-    return "1st" if 4 <= month <= 9 else "2nd"
+    return TERM_FIRST if 4 <= month <= 9 else TERM_SECOND
+
+
+def normalize_term_key(term: str | None) -> str:
+    """Normalize term labels to canonical Japanese keys."""
+    key = str(term or "").strip().lower()
+    if not key:
+        return get_current_term()
+    return TERM_ALIASES.get(key, str(term).strip())
 
 
 def load_user_data(user_id):
@@ -45,21 +64,37 @@ def load_user_data(user_id):
 
 def _migrate_user_data_to_term_aware(data: dict) -> dict:
     """Migrate legacy single-term data structure to term-aware structure."""
+    def _normalize_term_map(raw: dict | None) -> dict:
+        normalized: dict[str, list] = {TERM_FIRST: [], TERM_SECOND: []}
+        if not isinstance(raw, dict):
+            return normalized
+
+        for k, v in raw.items():
+            term_key = normalize_term_key(k)
+            if term_key not in normalized:
+                continue
+            if isinstance(v, list):
+                normalized[term_key].extend(v)
+        return normalized
+
     # Migrate classes
     if "classes" in data and not isinstance(data["classes"], dict):
         classes_list = data.pop("classes", [])
         if "classes_by_term" not in data:
-            data["classes_by_term"] = {"1st": classes_list, "2nd": []}
-    elif "classes_by_term" not in data:
-        data["classes_by_term"] = {"1st": [], "2nd": []}
+            data["classes_by_term"] = {TERM_FIRST: classes_list, TERM_SECOND: []}
+    data["classes_by_term"] = _normalize_term_map(data.get("classes_by_term"))
 
     # Migrate exam_schedules
     if "exam_schedules" in data and not isinstance(data["exam_schedules"], dict):
         exam_list = data.pop("exam_schedules", [])
         if "exam_schedules_by_term" not in data:
-            data["exam_schedules_by_term"] = {"1st": exam_list, "2nd": []}
-    elif "exam_schedules_by_term" not in data:
-        data["exam_schedules_by_term"] = {"1st": [], "2nd": []}
+            data["exam_schedules_by_term"] = {
+                TERM_FIRST: exam_list,
+                TERM_SECOND: [],
+            }
+    data["exam_schedules_by_term"] = _normalize_term_map(
+        data.get("exam_schedules_by_term")
+    )
 
     return data
 

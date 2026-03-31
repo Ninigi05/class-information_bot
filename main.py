@@ -31,6 +31,7 @@ from utils import (
     send_long_dm,
     WEEKDAY_MAP,
     get_current_term,
+    normalize_term_key,
 )
 from web_api_integration import start_web_server
 from web_link_service import consume_link_key
@@ -518,7 +519,7 @@ mail_group = app_commands.Group(
 
 def _apply_web_payload_to_user_data(user_data: dict, payload: dict) -> dict:
     """Web の payload に含まれる項目のみ user_data へ反映する（term-aware）。"""
-    term = (payload.get("_meta") or {}).get("term") or get_current_term()
+    term = normalize_term_key((payload.get("_meta") or {}).get("term"))
     user_data.setdefault("classes_by_term", {}).setdefault(term, [])
     user_data.setdefault("exam_schedules_by_term", {}).setdefault(term, [])
 
@@ -683,7 +684,7 @@ async def web_applykey(interaction: discord.Interaction, key: str):
     try:
         user_data = load_user_data(user_id)
         feature = ((payload.get("_meta") or {}).get("feature") or "all").strip()
-        term = ((payload.get("_meta") or {}).get("term") or get_current_term()).strip()
+        term = normalize_term_key((payload.get("_meta") or {}).get("term"))
         feature_names = {
             "all": "全体",
             "classes": "通常時間割",
@@ -702,7 +703,7 @@ async def web_applykey(interaction: discord.Interaction, key: str):
 
         lines = [
             "Web登録データを反映しました。",
-            f"- 反映対象: {feature_names.get(feature, feature)} ({term}学期)",
+            f"- 反映対象: {feature_names.get(feature, feature)} ({term})",
             f"- 授業数: {len(user_data.get('classes_by_term', {}).get(term, []))}",
             f"- 試験時間割数: {len(user_data.get('exam_schedules_by_term', {}).get(term, []))}",
             f"- Gmail認証反映: {'成功' if gmail_ok else ('未実施' if not gmail_code else '失敗')}",
@@ -987,16 +988,20 @@ async def on_member_join(member: discord.Member):
         await member.send(welcome_msg)
         logger.info(f"[INFO] 新メンバーへDM送信完了: {member.name} ({member.id})")
     except discord.Forbidden:
-        logger.warning(f"[WARN] メンバーへのDM送信に失敗（DM受信拒否）: {member.name} ({member.id})")
+        logger.warning(
+            f"[WARN] メンバーへのDM送信に失敗（DM受信拒否）: {member.name} ({member.id})"
+        )
     except Exception as e:
         logger.exception(f"[ERROR] on_member_join中に例外発生: {e}")
-    
+
     # メンバーをサーバーから削除
     try:
         await member.kick(reason="Welcome DM sent. Kicking per bot setup.")
         logger.info(f"[INFO] メンバーをキック: {member.name} ({member.id})")
     except discord.Forbidden:
-        logger.error(f"[ERROR] メンバーのキックに失敗（権限不足）: {member.name} ({member.id})")
+        logger.error(
+            f"[ERROR] メンバーのキックに失敗（権限不足）: {member.name} ({member.id})"
+        )
     except Exception as e:
         logger.exception(f"[ERROR] メンバーキック中に例外発生: {e}")
 

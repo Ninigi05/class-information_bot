@@ -103,26 +103,26 @@
     const weekdays = ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"];
     const periods = ["1", "2", "3", "4", "5", "6"];
 
-    let currentTerm = localStorage.getItem(TERM_STORAGE_KEY) || "1st";
+    let currentTerm = localStorage.getItem(TERM_STORAGE_KEY) || "前期";
 
     const draft = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null") || {
-      classes_by_term: { "1st": [], "2nd": [] },
+      classes_by_term: { "前期": [], "後期": [] },
       notify: { normal_first: 15, normal_second: 10, exam_first: 30, exam_second: 25, morning_time: "08:00" },
       period_overrides: {},
       day_overrides: [],
       room_overrides: [],
-      exam_schedules_by_term: { "1st": [], "2nd": [] },
+      exam_schedules_by_term: { "前期": [], "後期": [] },
       exam_period_overrides: {},
       gmail_auth_code: "",
     };
 
     // Migration for old single-term structure
     if (Array.isArray(draft.classes)) {
-      draft.classes_by_term = { "1st": draft.classes, "2nd": [] };
+      draft.classes_by_term = { "前期": draft.classes, "後期": [] };
       delete draft.classes;
     }
     if (Array.isArray(draft.exam_schedules)) {
-      draft.exam_schedules_by_term = { "1st": draft.exam_schedules, "2nd": [] };
+      draft.exam_schedules_by_term = { "前期": draft.exam_schedules, "後期": [] };
       delete draft.exam_schedules;
     }
 
@@ -390,7 +390,7 @@
 
     // Term toggle handlers
     el.termToggle1st.addEventListener("click", () => {
-      currentTerm = "1st";
+      currentTerm = "前期";
       localStorage.setItem(TERM_STORAGE_KEY, currentTerm);
       el.termToggle1st.classList.add("bg-emerald-600", "text-white", "hover:bg-emerald-700");
       el.termToggle1st.classList.remove("bg-slate-300", "text-slate-700", "hover:bg-slate-400");
@@ -402,7 +402,7 @@
     });
 
     el.termToggle2nd.addEventListener("click", () => {
-      currentTerm = "2nd";
+      currentTerm = "後期";
       localStorage.setItem(TERM_STORAGE_KEY, currentTerm);
       el.termToggle2nd.classList.add("bg-emerald-600", "text-white", "hover:bg-emerald-700");
       el.termToggle2nd.classList.remove("bg-slate-300", "text-slate-700", "hover:bg-slate-400");
@@ -414,7 +414,7 @@
     });
 
     // Initialize term toggle button appearance
-    if (currentTerm === "1st") {
+    if (currentTerm === "前期") {
       el.termToggle1st.classList.add("bg-emerald-600", "text-white", "hover:bg-emerald-700");
       el.termToggle1st.classList.remove("bg-slate-300", "text-slate-700", "hover:bg-slate-400");
     } else {
@@ -473,8 +473,8 @@
     el.issueKeyExam.addEventListener("click", async () => issueLinkKey("exam"));
 
     // Initialize draft - ensure term-aware structure exists
-    draft.classes_by_term = draft.classes_by_term || { "1st": [], "2nd": [] };
-    draft.exam_schedules_by_term = draft.exam_schedules_by_term || { "1st": [], "2nd": [] };
+    draft.classes_by_term = draft.classes_by_term || { "前期": [], "後期": [] };
+    draft.exam_schedules_by_term = draft.exam_schedules_by_term || { "前期": [], "後期": [] };
 
     renderScheduleSelect();
     renderExamTimetable();
