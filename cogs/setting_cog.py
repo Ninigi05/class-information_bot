@@ -2,7 +2,16 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import re
-from utils import load_user_data, save_user_data, PERIOD_TO_TIME, DEFAULT_NOTIFY
+from datetime import datetime
+from utils import (
+    load_user_data,
+    save_user_data,
+    PERIOD_TO_TIME,
+    DEFAULT_NOTIFY,
+    TERM_FIRST,
+    TERM_SECOND,
+    normalize_term_key,
+)
 
 
 class SettingCog(commands.GroupCog, name="setting"):
@@ -22,6 +31,10 @@ class SettingCog(commands.GroupCog, name="setting"):
     ):
         options = list(PERIOD_TO_TIME.keys()) + ["all"]
         return [app_commands.Choice(name=p, value=p) for p in options if current in p]
+
+    async def term_autocomplete(self, interaction: discord.Interaction, current: str):
+        terms = [TERM_FIRST, TERM_SECOND]
+        return [app_commands.Choice(name=t, value=t) for t in terms if current in t]
 
     @app_commands.command(
         name="period_time",
@@ -58,6 +71,8 @@ class SettingCog(commands.GroupCog, name="setting"):
         notify_settings = data.get("notify_settings", {}) or {}
         normal_cfg = notify_settings.get("normal") or DEFAULT_NOTIFY["normal"]
         exam_cfg = notify_settings.get("exam") or DEFAULT_NOTIFY["exam"]
+        term_starts = data.get("term_start_dates", {}) or {}
+        class_counts = data.get("class_count_targets", {}) or {}
 
         lines = ["現在の設定:"]
         lines.append("\n【時限の開始時刻】")
@@ -76,6 +91,12 @@ class SettingCog(commands.GroupCog, name="setting"):
         lines.append(
             f"  試験期間: {exam_cfg.get('first')}分前 / {exam_cfg.get('second')}分前"
         )
+
+        lines.append("\n【学期開始日と授業回数】")
+        for term in [TERM_FIRST, TERM_SECOND]:
+            start_date = term_starts.get(term, "未設定")
+            count = class_counts.get(term, "未設定")
+            lines.append(f"  {term}: 開始日 {start_date} / 授業回数 {count}回")
 
         try:
             dm = await interaction.user.create_dm()
@@ -117,6 +138,68 @@ class SettingCog(commands.GroupCog, name="setting"):
         save_user_data(user_id, data)
         await interaction.response.send_message(
             f"{period}限の開始時刻をデフォルト（{PERIOD_TO_TIME.get(period, '不明')}）にリセットしました。",
+            ephemeral=True,
+        )
+
+    @app_commands.command(
+        name="term_start", description="学期の開始日を設定します（前期または後期）"
+    )
+    @app_commands.describe(
+        term="学期（前期 または 後期）", date="開始日（YYYY-MM-DD 形式）"
+    )
+    @app_commands.autocomplete(term=term_autocomplete)
+    async def set_term_start(
+        self, interaction: discord.Interaction, term: str, date: str
+    ):
+        term = normalize_term_key(term)
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            await interaction.response.send_message(
+                '日付は「YYYY-MM-DD」の形式で入力してください（例：2026-04-01）。',
+                ephemeral=True,
+            )
+            return
+
+        user_id = interaction.user.id
+        data = load_user_data(user_id)
+        data.setdefault("term_start_dates", {})[term] = date
+        save_user_data(user_id, data)
+
+        await interaction.response.send_message(
+            f"{term}の開始日を {date} に設定しました。", ephemeral=True
+        )
+
+    @app_commands.command(
+        name="class_count", description="学期の授業回数を設定します（通常時間割）"
+    )
+    @app_commands.describe(
+        term="学期（前期 または 後期）", count="授業回数（1 以上の整数）"
+    )
+    @app_commands.autocomplete(term=term_autocomplete)
+    async def set_class_count(
+        self, interaction: discord.Interaction, term: str, count: int
+    ):
+        term = normalize_term_key(term)
+        if count < 1:
+            await interaction.response.send_message(
+                "授業回数は1以上の整数で入力してください。", ephemeral=True
+            )
+            return
+
+        user_id = interaction.user.id
+        data = load_user_data(user_id)
+        data.setdefault("class_count_targets", {})[term] = count
+
+        # Reset attendance counts when updating target
+        attendance = data.get("class_attendance_count", {}) or {}
+        attendance[term] = {}
+        data["class_attendance_count"] = attendance
+
+        save_user_data(user_id, data)
+
+        await interaction.response.send_message(
+            f"{term}の授業回数を {count} 回に設定しました。出席回数はリセットされました。",
             ephemeral=True,
         )
 

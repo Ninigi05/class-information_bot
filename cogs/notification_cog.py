@@ -20,6 +20,9 @@ from utils import (
     WEEKDAY_MAP,
     PERIOD_TO_TIME,
     DEFAULT_NOTIFY,
+    TERM_FIRST,
+    TERM_SECOND,
+    get_attendance_key,
 )
 
 BASE_DIR = os.getcwd()
@@ -365,6 +368,88 @@ class NotificationCog(commands.Cog):
         await send_long_dm(interaction.user, "\n".join(lines))
         await interaction.followup.send("補講一覧をDMで送信しました。", ephemeral=True)
 
+    # ------------------- attendance counting helper -------------------
+
+    async def _handle_attendance_count(
+        self, user_id: int, data: dict, term: str, cls: dict, 
+        today_classes: list, makeups_today: list
+    ):
+        """Count class attendance and delete the class if max count is reached."""
+        try:
+            target_count = data.get("class_count_targets", {}).get(term)
+            if not target_count:
+                return  # No target count set for this term
+
+            subject = str(cls.get("subject", "")).strip()
+            period = str(cls.get("period", "")).strip()
+            is_makeup = cls.get("_is_makeup", False)
+            
+            if is_makeup:
+                # For makeup classes, just track by subject
+                key = f"makeup|{subject}"
+            else:
+                # For regular classes, find the weekday
+                weekday = None
+                for c in today_classes:
+                    if c.get("subject") == subject and c.get("period") == period:
+                        weekday = c.get("day")
+                        break
+                
+                if weekday is None:
+                    return  # Class not found in today_classes
+                
+                key = f"regular|{weekday}|{period}|{subject}"
+            
+            # Increment attendance count
+            attendance = data.get("class_attendance_count", {}) or {}
+            if term not in attendance:
+                attendance[term] = {}
+            
+            current_count = attendance[term].get(key, 0)
+            new_count = current_count + 1
+            attendance[term][key] = new_count
+            data["class_attendance_count"] = attendance
+            
+            logger.info(f"[INFO] 出席カウント: user={user_id} term={term} {key} count={new_count}/{target_count}")
+            
+            # Check if max count reached
+            if new_count >= target_count:
+                # Delete the class
+                if is_makeup:
+                    # Remove from makeup_classes
+                    makeups = data.get("makeup_classes", []) or []
+                    data["makeup_classes"] = [
+                        m for m in makeups if m.get("subject") != subject
+                    ]
+                    logger.info(f"[INFO] 補講削除: user={user_id} subject={subject}")
+                else:
+                    # Remove from regular classes
+                    classes = data.get("classes_by_term", {}).get(term, []) or []
+                    data["classes_by_term"][term] = [
+                        c for c in classes 
+                        if not (c.get("subject") == subject and str(c.get("period")) == period)
+                    ]
+                    logger.info(f"[INFO] 授業削除: user={user_id} term={term} {key}")
+                
+                # Reset attendance tracking for this class
+                del attendance[term][key]
+                data["class_attendance_count"] = attendance
+                
+                save_user_data(user_id, data)
+                
+                # Notify user
+                try:
+                    msg = f"📚 授業「{subject}」は {target_count} 回の受講が完了したため、データから削除されました。"
+                    user_obj = await self.bot.fetch_user(user_id)
+                    await send_dm(user_obj, msg)
+                except Exception as e:
+                    logger.error(f"[ERROR] 削除通知DM送信失敗: user={user_id}: {e}")
+            else:
+                save_user_data(user_id, data)
+                
+        except Exception as e:
+            logger.exception(f"[ERROR] _handle_attendance_count 例外: user={user_id}: {e}")
+
     # ------------------- background notification task -------------------
 
     @tasks.loop(minutes=1)
@@ -610,14 +695,8 @@ class NotificationCog(commands.Cog):
                         # combine regular and makeup classes
                         final_classes = list(today_classes)
                         for m in makeups_today:
-                            final_classes.append(
-                                {
-                                    "period": m.get("time", "?"),
-                                    "time": m.get("time"),
-                                    "subject": m.get("subject"),
-                                    "room": m.get("room", "未設定"),
-                                }
-                            )
+                            m["_is_makeup"] = True
+                            final_classes.append(m)
 
                         # resolve notification offsets
                         normal_cfg = (
@@ -677,6 +756,13 @@ class NotificationCog(commands.Cog):
                             except Exception as e:
                                 logger.error(
                                     f"[ERROR] DM送信失敗 (リマインダー) user={user_id}: {e}"
+                                )
+
+                            # Count attendance only for non-canceled classes (excluding first offset)
+                            if not is_canceled and diff_minutes == offsets[0]:
+                                # This is the first reminder time, suitable for counting attendance
+                                await self._handle_attendance_count(
+                                    user_id, data, term, cls, today_classes, makeups_today
                                 )
 
                         # morning summary at configured time

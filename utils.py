@@ -51,6 +51,11 @@ def normalize_term_key(term: str | None) -> str:
     return TERM_ALIASES.get(key, str(term).strip())
 
 
+def get_attendance_key(term: str, weekday: int, period: str, subject: str) -> str:
+    """Generate a unique key for tracking class attendance."""
+    return f"{term}|{weekday}|{period}|{subject}"
+
+
 def load_user_data(user_id):
     path = os.path.join(BASE_DIR, f"user_{user_id}.json")
     if not os.path.exists(path):
