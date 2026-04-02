@@ -179,10 +179,27 @@ class PeriodTimeUpdate(BaseModel):
     time: str = Field(..., description="開始時刻（HH:MM）")
 
 
+class TermSettings(BaseModel):
+    """学期設定"""
+
+    term: str = Field(..., description="学期（前期 または 後期）")
+    start_date: Optional[str] = Field(None, description="開始日（YYYY-MM-DD）")
+    class_count: Optional[int] = Field(None, description="授業回数")
+
+
+class TermSettingsUpdate(BaseModel):
+    """学期設定更新リクエスト"""
+
+    term: str = Field(..., description="学期（前期 または 後期）")
+    start_date: Optional[str] = Field(None, description="開始日（YYYY-MM-DD）")
+    class_count: Optional[int] = Field(None, description="授業回数")
+
+
 class SettingsShowResponse(BaseModel):
     """設定情報レスポンス"""
 
     period_times: dict = Field(..., description="時限ごとの開始時刻")
+    term_settings: dict = Field(default={}, description="学期設定（前期・後期）")
 
 
 # ============ エラーレスポンス ============

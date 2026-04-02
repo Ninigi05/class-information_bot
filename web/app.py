@@ -12,7 +12,7 @@ import os
 from web.config import ALLOWED_ORIGINS, LOG_LEVEL, BASE_DIR
 from web.auth import authenticate_user, get_current_user, TokenData
 from web.schemas import AuthResponse, UserInfo, SuccessResponse
-from web.api import classes, exams, makeup
+from web.api import classes, exams, makeup, settings
 
 # ロギング設定
 logging.basicConfig(level=getattr(logging, LOG_LEVEL))
@@ -89,6 +89,7 @@ async def get_current_user_info(current_user: TokenData = Depends(get_current_us
 app.include_router(classes.router)
 app.include_router(exams.router)
 app.include_router(makeup.router)
+app.include_router(settings.router)
 
 
 # ============ ヘルスチェック ============

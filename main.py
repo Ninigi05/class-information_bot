@@ -667,6 +667,18 @@ def _apply_web_payload_to_user_data(user_data: dict, payload: dict) -> dict:
         schedules_out = _convert_exam_schedules(payload.get("exam_schedules") or [])
         for target_term in target_terms:
             user_data["exam_schedules_by_term"][target_term] = list(schedules_out)
+
+    # 学期開始日と授業回数設定
+    if "term_start_dates" in payload and isinstance(payload.get("term_start_dates"), dict):
+        user_data.setdefault("term_start_dates", {}).update(payload.get("term_start_dates") or {})
+    if "class_count_targets" in payload and isinstance(payload.get("class_count_targets"), dict):
+        user_data.setdefault("class_count_targets", {}).update(payload.get("class_count_targets") or {})
+        # Reset attendance count when updating targets
+        attendance = user_data.get("class_attendance_count", {}) or {}
+        for target_term in target_terms:
+            attendance[target_term] = {}
+        user_data["class_attendance_count"] = attendance
+
     return user_data
 
 

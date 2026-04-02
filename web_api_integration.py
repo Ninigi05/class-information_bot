@@ -161,6 +161,8 @@ class WebRegistrationDraft(BaseModel):
     room_overrides: list[RoomOverrideDraft] = Field(default_factory=list)
     exam_schedules: list[WebExamScheduleDraft] = Field(default_factory=list)
     exam_period_overrides: dict[str, str] = Field(default_factory=dict)
+    term_start_dates: dict[str, str] = Field(default_factory=dict)
+    class_count_targets: dict[str, int] = Field(default_factory=dict)
     gmail_auth_code: Optional[str] = None
 
 
@@ -206,6 +208,9 @@ def _build_feature_payload(
                 "morning_time": notify.get("morning_time"),
             },
             "period_overrides": draft.period_overrides,
+            "term_start_dates": draft.term_start_dates,
+            "class_count_targets": draft.class_count_targets,
+        },
         },
         "overrides": {
             "day_overrides": draft.day_overrides,
