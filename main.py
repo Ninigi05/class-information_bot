@@ -3,11 +3,15 @@ import base64
 import traceback
 import logging
 import glob
+import ssl
+import socket
 from logging.handlers import RotatingFileHandler
 import discord
 import unicodedata
 from discord import app_commands
 from discord.ext import commands
+import aiohttp
+import certifi
 from dotenv import load_dotenv
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -72,6 +76,33 @@ def now_local() -> datetime:
     except Exception:
         # Fallback to system local time if timezone config is invalid.
         return datetime.now()
+
+
+def build_discord_ssl_context() -> ssl.SSLContext:
+    context = ssl.create_default_context(cafile=certifi.where())
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    if hasattr(ssl.TLSVersion, "TLSv1_3"):
+        context.maximum_version = ssl.TLSVersion.TLSv1_3
+    context.check_hostname = True
+    context.verify_mode = ssl.CERT_REQUIRED
+    return context
+
+
+def build_discord_connector() -> aiohttp.TCPConnector:
+    force_ipv4 = (os.getenv("DISCORD_FORCE_IPV4") or "1").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    dns_ttl = int((os.getenv("AIOHTTP_DNS_TTL") or "60").strip())
+
+    return aiohttp.TCPConnector(
+        ssl=build_discord_ssl_context(),
+        family=socket.AF_INET if force_ipv4 else socket.AF_UNSPEC,
+        ttl_dns_cache=dns_ttl,
+        enable_cleanup_closed=True,
+    )
 
 
 def _resolve_gmail_credentials() -> str:
@@ -590,13 +621,17 @@ def _apply_web_payload_to_user_data(user_data: dict, payload: dict) -> dict:
             )
         return schedules_out
 
-    if "classes_by_term" in payload and isinstance(payload.get("classes_by_term"), dict):
+    if "classes_by_term" in payload and isinstance(
+        payload.get("classes_by_term"), dict
+    ):
         for raw_term, classes_raw in (payload.get("classes_by_term") or {}).items():
             target_term = normalize_term_key(raw_term)
             if target_term not in {TERM_FIRST, TERM_SECOND}:
                 continue
             user_data.setdefault("classes_by_term", {}).setdefault(target_term, [])
-            user_data["classes_by_term"][target_term] = _convert_classes(classes_raw or [])
+            user_data["classes_by_term"][target_term] = _convert_classes(
+                classes_raw or []
+            )
     elif "classes" in payload:
         classes_raw = payload.get("classes") or []
         classes = _convert_classes(classes_raw)
@@ -655,11 +690,15 @@ def _apply_web_payload_to_user_data(user_data: dict, payload: dict) -> dict:
     if "exam_schedules_by_term" in payload and isinstance(
         payload.get("exam_schedules_by_term"), dict
     ):
-        for raw_term, schedules_raw in (payload.get("exam_schedules_by_term") or {}).items():
+        for raw_term, schedules_raw in (
+            payload.get("exam_schedules_by_term") or {}
+        ).items():
             target_term = normalize_term_key(raw_term)
             if target_term not in {TERM_FIRST, TERM_SECOND}:
                 continue
-            user_data.setdefault("exam_schedules_by_term", {}).setdefault(target_term, [])
+            user_data.setdefault("exam_schedules_by_term", {}).setdefault(
+                target_term, []
+            )
             user_data["exam_schedules_by_term"][target_term] = _convert_exam_schedules(
                 schedules_raw or []
             )
@@ -669,10 +708,18 @@ def _apply_web_payload_to_user_data(user_data: dict, payload: dict) -> dict:
             user_data["exam_schedules_by_term"][target_term] = list(schedules_out)
 
     # 学期開始日と授業回数設定
-    if "term_start_dates" in payload and isinstance(payload.get("term_start_dates"), dict):
-        user_data.setdefault("term_start_dates", {}).update(payload.get("term_start_dates") or {})
-    if "class_count_targets" in payload and isinstance(payload.get("class_count_targets"), dict):
-        user_data.setdefault("class_count_targets", {}).update(payload.get("class_count_targets") or {})
+    if "term_start_dates" in payload and isinstance(
+        payload.get("term_start_dates"), dict
+    ):
+        user_data.setdefault("term_start_dates", {}).update(
+            payload.get("term_start_dates") or {}
+        )
+    if "class_count_targets" in payload and isinstance(
+        payload.get("class_count_targets"), dict
+    ):
+        user_data.setdefault("class_count_targets", {}).update(
+            payload.get("class_count_targets") or {}
+        )
         # Reset attendance count when updating targets
         attendance = user_data.get("class_attendance_count", {}) or {}
         for target_term in target_terms:
@@ -873,7 +920,8 @@ class ClassBot(commands.Bot):
         intents = discord.Intents.default()
         intents.members = True
         intents.message_content = True
-        super().__init__(command_prefix="!", intents=intents)
+        connector = build_discord_connector()
+        super().__init__(command_prefix="!", intents=intents, connector=connector)
         # Ensure all app commands are user-installable and executable in DMs by default.
         try:
             self.tree.allowed_installs = app_commands.AppInstallationType(
@@ -921,8 +969,12 @@ class ClassBot(commands.Bot):
                 "• /class add weekday period subject room\n  → 授業を登録します"
             )
             lines.append("• /class remove weekday period\n  → 授業を削除します")
-            lines.append("• /class list [term]\n  → 登録授業一覧をDMで受け取ります（term: 前期/後期）")
-            lines.append("• /class table [term]\n  → 時間割表形式で表示します（term: 前期/後期）")
+            lines.append(
+                "• /class list [term]\n  → 登録授業一覧をDMで受け取ります（term: 前期/後期）"
+            )
+            lines.append(
+                "• /class table [term]\n  → 時間割表形式で表示します（term: 前期/後期）"
+            )
             lines.append(
                 "• /class setroom date period new_room\n  → 指定日の教室を変更します"
             )
@@ -1128,5 +1180,11 @@ if __name__ == "__main__":
         logger.exception(f"[ERROR] Web API サーバー起動失敗: {e}")
 
     # Discord Bot を起動
+    logger.info("[SSL] Python/OpenSSL: %s", ssl.OPENSSL_VERSION)
+    logger.info(
+        "[SSL] DISCORD_FORCE_IPV4=%s AIOHTTP_DNS_TTL=%s",
+        (os.getenv("DISCORD_FORCE_IPV4") or "1"),
+        (os.getenv("AIOHTTP_DNS_TTL") or "60"),
+    )
     logger.info("[INFO] Discord Bot を起動します...")
     bot.run(DISCORD_TOKEN)

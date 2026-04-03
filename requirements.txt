@@ -1,5 +1,7 @@
 # Discord Bot
 discord.py==2.3.2
+aiohttp==3.10.11
+certifi==2024.8.30
 
 # Web Framework
 fastapi==0.104.1

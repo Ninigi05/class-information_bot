@@ -8,8 +8,11 @@ WORKDIR /app
 
 # matplotlib / japanize-matplotlib で使う最小フォント類
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    openssl \
     tzdata \
     fonts-ipafont-gothic \
+    && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /app/requirements.txt
