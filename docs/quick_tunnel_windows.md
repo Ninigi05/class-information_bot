@@ -16,6 +16,7 @@ This setup keeps your bot stack and Cloudflare Quick Tunnel running without rely
 - Docker Desktop is installed and usable from PowerShell
 - cloudflared is installed and available in PATH
 - .env exists in repository root
+- The Web API in this project listens on http://localhost:8000
 
 ## One-time setup
 
@@ -50,5 +51,6 @@ powershell -ExecutionPolicy Bypass -File scripts/unregister_startup_task.ps1
 ## Notes
 
 - Quick Tunnel URL changes whenever cloudflared process restarts.
+- If you start cloudflared manually, point it to http://localhost:8000, not 8080.
 - This flow auto-updates runtime/quick_tunnel_url.txt and can auto-sync .env.
 - If you do not need .env updates, omit -SyncUrlToEnv.
