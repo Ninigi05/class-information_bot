@@ -12,9 +12,7 @@ services:
       - APP_TIMEZONE=Asia/Tokyo
       - DISCORD_FORCE_IPV4=1
       - AIOHTTP_DNS_TTL=60
-    dns:
-      - 1.1.1.1
-      - 8.8.8.8
+    # DNS はホスト/ネットワーク環境に依存するため固定しない
     # main.py が WEB_PORT(既定 8000) で FastAPI を起動するため公開
     ports:
       - "8000:8000"
