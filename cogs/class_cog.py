@@ -379,7 +379,7 @@ class ClassCog(commands.GroupCog, name="class"):
     ):
         await interaction.response.defer(ephemeral=True)
         try:
-            datetime.strptime(date, "%Y-%m-%d")
+            target_date = datetime.strptime(date, "%Y-%m-%d").date()
         except Exception:
             await interaction.followup.send(
                 "日付形式が無効です。YYYY-MM-DD で指定してください。", ephemeral=True
@@ -388,11 +388,46 @@ class ClassCog(commands.GroupCog, name="class"):
         user_id = interaction.user.id
         data = load_user_data(user_id)
         term = get_current_term()
+        target_weekday = target_date.weekday()
         found = False
+
+        # Apply to regular timetable classes that are actually scheduled on this date.
         for cls in data.get("classes_by_term", {}).get(term, []):
-            if str(cls.get("period")) == str(period):
+            if str(cls.get("period")) != str(period):
+                continue
+            effective_day = cls.get("day")
+            try:
+                if date in (cls.get("overrides") or {}):
+                    effective_day = (cls.get("overrides") or {}).get(date)
+                effective_day = int(effective_day)
+            except Exception:
+                continue
+            if effective_day != target_weekday:
+                continue
+
+            cls.setdefault("room_overrides", {})[date] = new_room
+            found = True
+
+        # Also apply to exam timetable classes that are active on this date.
+        for sched in data.get("exam_schedules_by_term", {}).get(term, []) or []:
+            start = str(sched.get("start", "")).strip()
+            end = str(sched.get("end", "")).strip()
+            if start and date < start:
+                continue
+            if end and date > end:
+                continue
+
+            for cls in sched.get("classes", []) or []:
+                if str(cls.get("period")) != str(period):
+                    continue
+                try:
+                    if int(cls.get("day")) != target_weekday:
+                        continue
+                except Exception:
+                    continue
                 cls.setdefault("room_overrides", {})[date] = new_room
                 found = True
+
         if not found:
             await interaction.followup.send(
                 "指定の授業が見つかりませんでした。", ephemeral=True
