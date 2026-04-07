@@ -17,6 +17,7 @@ from google_auth_oauthlib.flow import Flow
 
 from utils import (
     load_user_data,
+    save_user_data,
     WEEKDAYS,
     PERIOD_TO_TIME,
     WEEKDAY_MAP,
@@ -188,7 +189,9 @@ def _build_feature_payload(
     if not classes_for_term and isinstance(draft.classes_by_term, dict):
         classes_for_term = (
             draft.classes_by_term.get(normalized_term)
-            or draft.classes_by_term.get("1st" if normalized_term == TERM_FIRST else "2nd")
+            or draft.classes_by_term.get(
+                "1st" if normalized_term == TERM_FIRST else "2nd"
+            )
             or []
         )
 
@@ -210,7 +213,6 @@ def _build_feature_payload(
             "period_overrides": draft.period_overrides,
             "term_start_dates": draft.term_start_dates,
             "class_count_targets": draft.class_count_targets,
-        },
         },
         "overrides": {
             "day_overrides": draft.day_overrides,
@@ -520,7 +522,7 @@ async def get_schedule_table(
         classes = user_data.get("classes", [])
 
         # テーブル形式に変換
-        table = {}
+        table: dict[str, dict[str, Any | None]] = {}
         for weekday_name in WEEKDAYS:
             table[weekday_name] = {}
             for period in PERIOD_TO_TIME.keys():
