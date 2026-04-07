@@ -920,8 +920,9 @@ class ClassBot(commands.Bot):
         intents = discord.Intents.default()
         intents.members = True
         intents.message_content = True
-        connector = build_discord_connector()
-        super().__init__(command_prefix="!", intents=intents, connector=connector)
+        # Let discord.py create its connector inside the running event loop.
+        # Creating aiohttp.TCPConnector here can fail on newer aiohttp versions.
+        super().__init__(command_prefix="!", intents=intents)
         # Ensure all app commands are user-installable and executable in DMs by default.
         try:
             self.tree.allowed_installs = app_commands.AppInstallationType(
