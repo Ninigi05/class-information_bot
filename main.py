@@ -8,6 +8,9 @@ import socket
 from logging.handlers import RotatingFileHandler
 import discord
 import unicodedata
+import pickle
+import re
+import sys
 from discord import app_commands
 from discord.ext import commands
 import aiohttp
@@ -15,19 +18,9 @@ import certifi
 from dotenv import load_dotenv
 from datetime import datetime
 from zoneinfo import ZoneInfo
-import pickle
-import re
-import sys
-
-if hasattr(sys.stdout, "reconfigure"):
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-    except Exception:
-        pass
-
-from googleapiclient.discovery import build
+from googleapiclient.discovery import build  # type: ignore[import-untyped]
 from google.auth.transport.requests import Request
-from google_auth_oauthlib.flow import Flow
+from google_auth_oauthlib.flow import Flow  # type: ignore[import-untyped]
 
 from utils import (
     load_user_data,
@@ -42,6 +35,17 @@ from utils import (
 )
 from web_api_integration import start_web_server
 from web_link_service import consume_link_key
+
+
+def _supports_app_command_context_features() -> bool:
+    """discord.py の app command context / install API が使えるか判定する。"""
+    required_attrs = (
+        "AppInstallationType",
+        "AppCommandContext",
+        "allowed_installs",
+        "allowed_contexts",
+    )
+    return all(hasattr(app_commands, attr) for attr in required_attrs)
 
 load_dotenv()
 
@@ -757,6 +761,9 @@ web_group = app_commands.Group(name="web", description="Web登録データを取
 
 def _enable_user_install_support(tree: app_commands.CommandTree) -> None:
     """Enable user-install + DM contexts for all top-level app commands."""
+    if not _supports_app_command_context_features():
+        return
+
     for cmd in tree.get_commands():
         try:
             app_commands.allowed_installs(guilds=True, users=True)(cmd)
@@ -924,18 +931,23 @@ class ClassBot(commands.Bot):
         # Creating aiohttp.TCPConnector here can fail on newer aiohttp versions.
         super().__init__(command_prefix="!", intents=intents)
         # Ensure all app commands are user-installable and executable in DMs by default.
-        try:
-            self.tree.allowed_installs = app_commands.AppInstallationType(
-                guild=True,
-                user=True,
+        if _supports_app_command_context_features():
+            try:
+                self.tree.allowed_installs = app_commands.AppInstallationType(
+                    guild=True,
+                    user=True,
+                )
+                self.tree.allowed_contexts = app_commands.AppCommandContext(
+                    guild=True,
+                    dm_channel=True,
+                    private_channel=True,
+                )
+            except Exception as e:
+                logger.warning(f"[WARN] tree default contexts/install 設定失敗: {e}")
+        else:
+            logger.info(
+                "discord.py のバージョンが古いため、app command の install/context 設定はスキップします。"
             )
-            self.tree.allowed_contexts = app_commands.AppCommandContext(
-                guild=True,
-                dm_channel=True,
-                private_channel=True,
-            )
-        except Exception as e:
-            logger.warning(f"[WARN] tree default contexts/install 設定失敗: {e}")
 
     async def setup_hook(self):
         # cog のロード
