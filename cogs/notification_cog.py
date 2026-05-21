@@ -68,7 +68,7 @@ def _save_morning_sent(d):
 class NotificationCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self._last_notif_minute = None
+        self._last_notif_key = None
         self._notif_lock = asyncio.Lock()
         self.notification_loop.start()
 
@@ -452,7 +452,7 @@ class NotificationCog(commands.Cog):
 
     # ------------------- background notification task -------------------
 
-    @tasks.loop(minutes=1)
+    @tasks.loop(seconds=1)
     async def notification_loop(self):
         await self._do_notification_pass()
 
@@ -476,12 +476,13 @@ class NotificationCog(commands.Cog):
             now = _now_local()
 
         async with self._notif_lock:
-            minute_key = now.strftime("%Y-%m-%d %H:%M")
-            if self._last_notif_minute == minute_key:
+            # Use second-resolution key to avoid duplicate sends when running each second
+            sec_key = now.strftime("%Y-%m-%d %H:%M:%S")
+            if self._last_notif_key == sec_key:
                 return
-            self._last_notif_minute = minute_key
+            self._last_notif_key = sec_key
 
-            now_minutes = now.hour * 60 + now.minute
+            now_seconds = now.hour * 3600 + now.minute * 60 + now.second
             today_str = now.strftime("%Y-%m-%d")
             today_weekday = now.weekday()
 
@@ -569,14 +570,15 @@ class NotificationCog(commands.Cog):
 
                         exam_cfg = user_notify.get("exam") or DEFAULT_NOTIFY["exam"]
                         try:
-                            first_off = int(exam_cfg.get("first"))
-                            second_off = int(exam_cfg.get("second"))
+                            first_off = int(exam_cfg.get("first") or DEFAULT_NOTIFY["exam"]["first"])
+                            second_off = int(exam_cfg.get("second") or DEFAULT_NOTIFY["exam"]["second"])
                         except Exception:
                             first_off = DEFAULT_NOTIFY["exam"]["first"]
                             second_off = DEFAULT_NOTIFY["exam"]["second"]
                         if first_off < second_off:
                             first_off, second_off = second_off, first_off
-                        offsets = (first_off, second_off)
+                        # offsets in seconds
+                        offsets = (int(first_off) * 60, int(second_off) * 60)
 
                         # per-class exam reminders
                         for cls in final_classes:
@@ -597,13 +599,18 @@ class NotificationCog(commands.Cog):
                             if not time_str:
                                 continue
                             try:
-                                h, m_val = map(int, time_str.split(":"))
-                                class_minutes = h * 60 + m_val
+                                parts = [int(x) for x in time_str.split(":")]
+                                if len(parts) == 2:
+                                    h, m_val = parts
+                                    s_val = 0
+                                else:
+                                    h, m_val, s_val = parts[0], parts[1], parts[2]
+                                class_seconds = h * 3600 + m_val * 60 + s_val
                             except Exception:
                                 continue
 
-                            diff_minutes = class_minutes - now_minutes
-                            if diff_minutes not in offsets:
+                            diff_seconds = class_seconds - now_seconds
+                            if diff_seconds not in offsets:
                                 continue
 
                             is_canceled = any(
@@ -612,7 +619,16 @@ class NotificationCog(commands.Cog):
                                 for c in manual_cancellations
                             )
 
-                            msg = f"【試験期間】教室「{room}」で{diff_minutes}分後に授業「{cls.get('subject', '')}」が始まります"
+                            # prepare human-friendly minutes display
+                            try:
+                                if diff_seconds % 60 == 0:
+                                    diff_minutes_display = str(int(diff_seconds // 60))
+                                else:
+                                    diff_minutes_display = str(round(diff_seconds / 60, 1))
+                            except Exception:
+                                diff_minutes_display = str(diff_seconds)
+
+                            msg = f"【試験期間】教室「{room}」で{diff_minutes_display}分後に授業「{cls.get('subject', '')}」が始まります"
                             if is_canceled:
                                 msg += "\n※この授業は休講です（手動設定）"
 
@@ -703,14 +719,15 @@ class NotificationCog(commands.Cog):
                             user_notify.get("normal") or DEFAULT_NOTIFY["normal"]
                         )
                         try:
-                            first_off = int(normal_cfg.get("first"))
-                            second_off = int(normal_cfg.get("second"))
+                            first_off = int(normal_cfg.get("first") or DEFAULT_NOTIFY["normal"]["first"])
+                            second_off = int(normal_cfg.get("second") or DEFAULT_NOTIFY["normal"]["second"])
                         except Exception:
                             first_off = DEFAULT_NOTIFY["normal"]["first"]
                             second_off = DEFAULT_NOTIFY["normal"]["second"]
                         if first_off < second_off:
                             first_off, second_off = second_off, first_off
-                        offsets = (first_off, second_off)
+                        # offsets in seconds for normal reminders as well
+                        offsets = (int(first_off) * 60, int(second_off) * 60)
 
                         period_overrides = data.get("period_overrides", {}) or {}
 
@@ -732,13 +749,18 @@ class NotificationCog(commands.Cog):
                             if not time_str:
                                 continue
                             try:
-                                h, m_val = map(int, time_str.split(":"))
-                                class_minutes = h * 60 + m_val
+                                parts = [int(x) for x in time_str.split(":")]
+                                if len(parts) == 2:
+                                    h, m_val = parts
+                                    s_val = 0
+                                else:
+                                    h, m_val, s_val = parts[0], parts[1], parts[2]
+                                class_seconds = h * 3600 + m_val * 60 + s_val
                             except Exception:
                                 continue
 
-                            diff_minutes = class_minutes - now_minutes
-                            if diff_minutes not in offsets:
+                            diff_seconds = class_seconds - now_seconds
+                            if diff_seconds not in offsets:
                                 continue
 
                             is_canceled = any(
@@ -747,7 +769,16 @@ class NotificationCog(commands.Cog):
                                 for c in manual_cancellations
                             )
 
-                            msg = f"教室「{room}」で{diff_minutes}分後に授業「{cls.get('subject', '')}」が始まります"
+                            # prepare human-friendly minutes display
+                            try:
+                                if diff_seconds % 60 == 0:
+                                    diff_minutes_display = str(int(diff_seconds // 60))
+                                else:
+                                    diff_minutes_display = str(round(diff_seconds / 60, 1))
+                            except Exception:
+                                diff_minutes_display = str(diff_seconds)
+
+                            msg = f"教室「{room}」で{diff_minutes_display}分後に授業「{cls.get('subject', '')}」が始まります"
                             if is_canceled:
                                 msg += "\n※この授業は休講です（手動設定）"
 
@@ -759,7 +790,7 @@ class NotificationCog(commands.Cog):
                                 )
 
                             # Count attendance only for non-canceled classes (excluding first offset)
-                            if not is_canceled and diff_minutes == offsets[0]:
+                            if not is_canceled and diff_seconds == offsets[0]:
                                 # This is the first reminder time, suitable for counting attendance
                                 await self._handle_attendance_count(
                                     user_id, data, term, cls, today_classes, makeups_today

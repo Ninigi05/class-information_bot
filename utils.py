@@ -110,8 +110,24 @@ def save_user_data(user_id, data):
     data_to_save = dict(data)
     data_to_save.pop("classes", None)  # Remove old single-term keys
     data_to_save.pop("exam_schedules", None)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data_to_save, f, indent=4, ensure_ascii=False)
+    # Write atomically: write to temp file then replace
+    tmp_path = path + ".tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(data_to_save, f, indent=4, ensure_ascii=False)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except Exception:
+                pass
+        os.replace(tmp_path, path)
+    except Exception:
+        # Fallback to best-effort write
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data_to_save, f, indent=4, ensure_ascii=False)
+        except Exception:
+            logger.exception(f"ユーザーデータ保存失敗: {path}")
 
 
 async def send_dm(user, message):
