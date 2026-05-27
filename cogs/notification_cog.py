@@ -610,7 +610,13 @@ class NotificationCog(commands.Cog):
                                 continue
 
                             diff_seconds = class_seconds - now_seconds
-                            if diff_seconds not in offsets:
+                            # Allow small timing drift (tasks.loop may not align to wall-clock second 0)
+                            matched_offset = None
+                            for off in offsets:
+                                if abs(diff_seconds - off) <= 1:
+                                    matched_offset = off
+                                    break
+                            if matched_offset is None:
                                 continue
 
                             is_canceled = any(
@@ -760,7 +766,13 @@ class NotificationCog(commands.Cog):
                                 continue
 
                             diff_seconds = class_seconds - now_seconds
-                            if diff_seconds not in offsets:
+                            # Allow small timing drift (tasks.loop may not align to wall-clock second 0)
+                            matched_offset = None
+                            for off in offsets:
+                                if abs(diff_seconds - off) <= 1:
+                                    matched_offset = off
+                                    break
+                            if matched_offset is None:
                                 continue
 
                             is_canceled = any(
@@ -790,7 +802,7 @@ class NotificationCog(commands.Cog):
                                 )
 
                             # Count attendance only for non-canceled classes (excluding first offset)
-                            if not is_canceled and diff_seconds == offsets[0]:
+                            if not is_canceled and matched_offset == offsets[0]:
                                 # This is the first reminder time, suitable for counting attendance
                                 await self._handle_attendance_count(
                                     user_id, data, term, cls, today_classes, makeups_today
