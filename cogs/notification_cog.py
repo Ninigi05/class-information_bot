@@ -29,6 +29,7 @@ BASE_DIR = os.getcwd()
 MORNING_MARK_FILE = os.path.join(BASE_DIR, "morning_sent.json")
 logger = logging.getLogger(__name__)
 APP_TIMEZONE = (os.getenv("APP_TIMEZONE") or "Asia/Tokyo").strip()
+GRACE_WINDOW_SECONDS = int(os.getenv("NOTIF_GRACE_WINDOW", "300"))
 
 
 def _now_local() -> datetime:
@@ -69,6 +70,8 @@ class NotificationCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._last_notif_key = None
+        # per-user set of sent reminder keys to avoid duplicate notifications
+        self._sent_reminders: dict[int, set] = {}
         self._notif_lock = asyncio.Lock()
         self.notification_loop.start()
 
@@ -482,7 +485,12 @@ class NotificationCog(commands.Cog):
                 return
             self._last_notif_key = sec_key
 
-            now_seconds = now.hour * 3600 + now.minute * 60 + now.second
+            now_seconds = (
+                now.hour * 3600
+                + now.minute * 60
+                + now.second
+                + now.microsecond / 1_000_000.0
+            )
             today_str = now.strftime("%Y-%m-%d")
             today_weekday = now.weekday()
 
@@ -609,12 +617,21 @@ class NotificationCog(commands.Cog):
                             except Exception:
                                 continue
 
-                            diff_seconds = class_seconds - now_seconds
-                            # Allow small timing drift (tasks.loop may not align to wall-clock second 0)
+                            # Determine whether any configured offset is due (allow for delays)
                             matched_offset = None
+                            sent_key = None
                             for off in offsets:
-                                if abs(diff_seconds - off) <= 1:
+                                target = class_seconds - off
+                                # If current time has reached or passed target and within grace window
+                                if now_seconds >= target and (now_seconds - target) <= GRACE_WINDOW_SECONDS:
+                                    key = f"{today_str}|{p_key}|{str(cls.get('subject',''))}|{off}"
+                                    sent_set = self._sent_reminders.setdefault(user_id, set())
+                                    if key in sent_set:
+                                        # already sent
+                                        matched_offset = None
+                                        break
                                     matched_offset = off
+                                    sent_key = key
                                     break
                             if matched_offset is None:
                                 continue
@@ -640,6 +657,9 @@ class NotificationCog(commands.Cog):
 
                             try:
                                 await send_dm(user, msg)
+                                # mark as sent to avoid duplicates
+                                if sent_key:
+                                    self._sent_reminders.setdefault(user_id, set()).add(sent_key)
                             except Exception as e:
                                 logger.error(
                                     f"[ERROR] DM送信失敗 (試験リマインダー) user={user_id}: {e}"
@@ -765,12 +785,19 @@ class NotificationCog(commands.Cog):
                             except Exception:
                                 continue
 
-                            diff_seconds = class_seconds - now_seconds
-                            # Allow small timing drift (tasks.loop may not align to wall-clock second 0)
+                            # Determine whether any configured offset is due (allow for delays)
                             matched_offset = None
+                            sent_key = None
                             for off in offsets:
-                                if abs(diff_seconds - off) <= 1:
+                                target = class_seconds - off
+                                if now_seconds >= target and (now_seconds - target) <= GRACE_WINDOW_SECONDS:
+                                    key = f"{today_str}|{p_key}|{str(cls.get('subject',''))}|{off}"
+                                    sent_set = self._sent_reminders.setdefault(user_id, set())
+                                    if key in sent_set:
+                                        matched_offset = None
+                                        break
                                     matched_offset = off
+                                    sent_key = key
                                     break
                             if matched_offset is None:
                                 continue
@@ -796,6 +823,8 @@ class NotificationCog(commands.Cog):
 
                             try:
                                 await send_dm(user, msg)
+                                if sent_key:
+                                    self._sent_reminders.setdefault(user_id, set()).add(sent_key)
                             except Exception as e:
                                 logger.error(
                                     f"[ERROR] DM送信失敗 (リマインダー) user={user_id}: {e}"
