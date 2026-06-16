@@ -374,8 +374,13 @@ class NotificationCog(commands.Cog):
     # ------------------- attendance counting helper -------------------
 
     async def _handle_attendance_count(
-        self, user_id: int, data: dict, term: str, cls: dict, 
-        today_classes: list, makeups_today: list
+        self,
+        user_id: int,
+        data: dict,
+        term: str,
+        cls: dict,
+        today_classes: list,
+        makeups_today: list,
     ):
         """Count class attendance and delete the class if max count is reached."""
         try:
@@ -386,7 +391,7 @@ class NotificationCog(commands.Cog):
             subject = str(cls.get("subject", "")).strip()
             period = str(cls.get("period", "")).strip()
             is_makeup = cls.get("_is_makeup", False)
-            
+
             if is_makeup:
                 # For makeup classes, just track by subject
                 key = f"makeup|{subject}"
@@ -397,24 +402,26 @@ class NotificationCog(commands.Cog):
                     if c.get("subject") == subject and c.get("period") == period:
                         weekday = c.get("day")
                         break
-                
+
                 if weekday is None:
                     return  # Class not found in today_classes
-                
+
                 key = f"regular|{weekday}|{period}|{subject}"
-            
+
             # Increment attendance count
             attendance = data.get("class_attendance_count", {}) or {}
             if term not in attendance:
                 attendance[term] = {}
-            
+
             current_count = attendance[term].get(key, 0)
             new_count = current_count + 1
             attendance[term][key] = new_count
             data["class_attendance_count"] = attendance
-            
-            logger.info(f"[INFO] 出席カウント: user={user_id} term={term} {key} count={new_count}/{target_count}")
-            
+
+            logger.info(
+                f"[INFO] 出席カウント: user={user_id} term={term} {key} count={new_count}/{target_count}"
+            )
+
             # Check if max count reached
             if new_count >= target_count:
                 # Delete the class
@@ -429,17 +436,21 @@ class NotificationCog(commands.Cog):
                     # Remove from regular classes
                     classes = data.get("classes_by_term", {}).get(term, []) or []
                     data["classes_by_term"][term] = [
-                        c for c in classes 
-                        if not (c.get("subject") == subject and str(c.get("period")) == period)
+                        c
+                        for c in classes
+                        if not (
+                            c.get("subject") == subject
+                            and str(c.get("period")) == period
+                        )
                     ]
                     logger.info(f"[INFO] 授業削除: user={user_id} term={term} {key}")
-                
+
                 # Reset attendance tracking for this class
                 del attendance[term][key]
                 data["class_attendance_count"] = attendance
-                
+
                 save_user_data(user_id, data)
-                
+
                 # Notify user
                 try:
                     msg = f"📚 授業「{subject}」は {target_count} 回の受講が完了したため、データから削除されました。"
@@ -449,9 +460,11 @@ class NotificationCog(commands.Cog):
                     logger.error(f"[ERROR] 削除通知DM送信失敗: user={user_id}: {e}")
             else:
                 save_user_data(user_id, data)
-                
+
         except Exception as e:
-            logger.exception(f"[ERROR] _handle_attendance_count 例外: user={user_id}: {e}")
+            logger.exception(
+                f"[ERROR] _handle_attendance_count 例外: user={user_id}: {e}"
+            )
 
     # ------------------- background notification task -------------------
 
@@ -519,7 +532,9 @@ class NotificationCog(commands.Cog):
 
                     term = get_current_term()
                     classes = data.get("classes_by_term", {}).get(term, []) or []
-                    exam_schedules = data.get("exam_schedules_by_term", {}).get(term, []) or []
+                    exam_schedules = (
+                        data.get("exam_schedules_by_term", {}).get(term, []) or []
+                    )
                     if (
                         not classes
                         and not data.get("makeup_classes")
@@ -578,8 +593,13 @@ class NotificationCog(commands.Cog):
 
                         exam_cfg = user_notify.get("exam") or DEFAULT_NOTIFY["exam"]
                         try:
-                            first_off = int(exam_cfg.get("first") or DEFAULT_NOTIFY["exam"]["first"])
-                            second_off = int(exam_cfg.get("second") or DEFAULT_NOTIFY["exam"]["second"])
+                            first_off = int(
+                                exam_cfg.get("first") or DEFAULT_NOTIFY["exam"]["first"]
+                            )
+                            second_off = int(
+                                exam_cfg.get("second")
+                                or DEFAULT_NOTIFY["exam"]["second"]
+                            )
                         except Exception:
                             first_off = DEFAULT_NOTIFY["exam"]["first"]
                             second_off = DEFAULT_NOTIFY["exam"]["second"]
@@ -623,9 +643,14 @@ class NotificationCog(commands.Cog):
                             for off in offsets:
                                 target = class_seconds - off
                                 # If current time has reached or passed target and within grace window
-                                if now_seconds >= target and (now_seconds - target) <= GRACE_WINDOW_SECONDS:
+                                if (
+                                    now_seconds >= target
+                                    and (now_seconds - target) <= GRACE_WINDOW_SECONDS
+                                ):
                                     key = f"{today_str}|{p_key}|{str(cls.get('subject',''))}|{off}"
-                                    sent_set = self._sent_reminders.setdefault(user_id, set())
+                                    sent_set = self._sent_reminders.setdefault(
+                                        user_id, set()
+                                    )
                                     if key in sent_set:
                                         # already sent
                                         matched_offset = None
@@ -635,6 +660,8 @@ class NotificationCog(commands.Cog):
                                     break
                             if matched_offset is None:
                                 continue
+
+                            diff_seconds = off
 
                             is_canceled = any(
                                 c.get("date") == today_str
@@ -647,7 +674,9 @@ class NotificationCog(commands.Cog):
                                 if diff_seconds % 60 == 0:
                                     diff_minutes_display = str(int(diff_seconds // 60))
                                 else:
-                                    diff_minutes_display = str(round(diff_seconds / 60, 1))
+                                    diff_minutes_display = str(
+                                        round(diff_seconds / 60, 1)
+                                    )
                             except Exception:
                                 diff_minutes_display = str(diff_seconds)
 
@@ -659,7 +688,9 @@ class NotificationCog(commands.Cog):
                                 await send_dm(user, msg)
                                 # mark as sent to avoid duplicates
                                 if sent_key:
-                                    self._sent_reminders.setdefault(user_id, set()).add(sent_key)
+                                    self._sent_reminders.setdefault(user_id, set()).add(
+                                        sent_key
+                                    )
                             except Exception as e:
                                 logger.error(
                                     f"[ERROR] DM送信失敗 (試験リマインダー) user={user_id}: {e}"
@@ -745,8 +776,14 @@ class NotificationCog(commands.Cog):
                             user_notify.get("normal") or DEFAULT_NOTIFY["normal"]
                         )
                         try:
-                            first_off = int(normal_cfg.get("first") or DEFAULT_NOTIFY["normal"]["first"])
-                            second_off = int(normal_cfg.get("second") or DEFAULT_NOTIFY["normal"]["second"])
+                            first_off = int(
+                                normal_cfg.get("first")
+                                or DEFAULT_NOTIFY["normal"]["first"]
+                            )
+                            second_off = int(
+                                normal_cfg.get("second")
+                                or DEFAULT_NOTIFY["normal"]["second"]
+                            )
                         except Exception:
                             first_off = DEFAULT_NOTIFY["normal"]["first"]
                             second_off = DEFAULT_NOTIFY["normal"]["second"]
@@ -790,9 +827,14 @@ class NotificationCog(commands.Cog):
                             sent_key = None
                             for off in offsets:
                                 target = class_seconds - off
-                                if now_seconds >= target and (now_seconds - target) <= GRACE_WINDOW_SECONDS:
+                                if (
+                                    now_seconds >= target
+                                    and (now_seconds - target) <= GRACE_WINDOW_SECONDS
+                                ):
                                     key = f"{today_str}|{p_key}|{str(cls.get('subject',''))}|{off}"
-                                    sent_set = self._sent_reminders.setdefault(user_id, set())
+                                    sent_set = self._sent_reminders.setdefault(
+                                        user_id, set()
+                                    )
                                     if key in sent_set:
                                         matched_offset = None
                                         break
@@ -801,6 +843,8 @@ class NotificationCog(commands.Cog):
                                     break
                             if matched_offset is None:
                                 continue
+
+                            diff_seconds = off
 
                             is_canceled = any(
                                 c.get("date") == today_str
@@ -813,7 +857,9 @@ class NotificationCog(commands.Cog):
                                 if diff_seconds % 60 == 0:
                                     diff_minutes_display = str(int(diff_seconds // 60))
                                 else:
-                                    diff_minutes_display = str(round(diff_seconds / 60, 1))
+                                    diff_minutes_display = str(
+                                        round(diff_seconds / 60, 1)
+                                    )
                             except Exception:
                                 diff_minutes_display = str(diff_seconds)
 
@@ -824,7 +870,9 @@ class NotificationCog(commands.Cog):
                             try:
                                 await send_dm(user, msg)
                                 if sent_key:
-                                    self._sent_reminders.setdefault(user_id, set()).add(sent_key)
+                                    self._sent_reminders.setdefault(user_id, set()).add(
+                                        sent_key
+                                    )
                             except Exception as e:
                                 logger.error(
                                     f"[ERROR] DM送信失敗 (リマインダー) user={user_id}: {e}"
@@ -834,7 +882,12 @@ class NotificationCog(commands.Cog):
                             if not is_canceled and matched_offset == offsets[0]:
                                 # This is the first reminder time, suitable for counting attendance
                                 await self._handle_attendance_count(
-                                    user_id, data, term, cls, today_classes, makeups_today
+                                    user_id,
+                                    data,
+                                    term,
+                                    cls,
+                                    today_classes,
+                                    makeups_today,
                                 )
 
                         # morning summary at configured time
