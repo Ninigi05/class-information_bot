@@ -513,22 +513,26 @@ class NotificationCog(commands.Cog):
                         ".json"
                     ):
                         continue
+
                     try:
                         user_id = int(filename.split("_")[1].split(".")[0])
                     except Exception:
                         continue
 
-                    try:
-                        user = await self.bot.fetch_user(user_id)
-                    except discord.NotFound:
-                        continue
-                    except Exception as e:
-                        logger.warning(f"[WARN] ユーザー取得失敗: {user_id} ({e})")
-                        continue
+                    # --- 修正箇所: ここを以下のように整理してください ---
+                    user = self.bot.get_user(user_id)
+                    if user is None:
+                        try:
+                            user = await self.bot.fetch_user(user_id)
+                        except Exception:
+                            # 取得できなかった場合はこのユーザーの処理をスキップ
+                            continue
+                    # ---------------------------------------------
 
                     data = load_user_data(user_id)
                     if not data:
                         continue
+                    # ... (以下略)
 
                     term = get_current_term()
                     classes = data.get("classes_by_term", {}).get(term, []) or []
