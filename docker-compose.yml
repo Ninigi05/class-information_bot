@@ -20,3 +20,11 @@ services:
     volumes:
       - ./:/app
     command: ["python", "main.py"]
+
+    cloudflare-tunnel:
+      image: cloudflare/cloudflared:latest
+      container_name: cloudflare-tunnel
+      restart: unless-stopped
+      command: tunnel --no-autoupdate run --token YOUR_COPIED_TOKEN_HERE
+      environment:
+        - eyJhIjoiYjFlMGE4NzZhOTczMmU0YzA0ZTBlN2VmY2QwYzQwZjgiLCJ0IjoiNjU3YjYyZDgtYTFjMy00N2UzLWJiNmItNGQxOGI2Mjg1ODQ0IiwicyI6Ik5HTmhNak01TkRRdE5qWmtZeTAwTjJFeUxUZ3pNMk10WkRZMVlqRmxNRE5sWlRkayJ9
