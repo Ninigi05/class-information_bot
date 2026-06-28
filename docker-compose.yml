@@ -12,19 +12,25 @@ services:
       - APP_TIMEZONE=Asia/Tokyo
       - DISCORD_FORCE_IPV4=1
       - AIOHTTP_DNS_TTL=60
-    # DNS はホスト/ネットワーク環境に依存するため固定しない
-    # main.py が WEB_PORT(既定 8000) で FastAPI を起動するため公開
     ports:
       - "8000:8000"
-    # ユーザーデータ JSON / logs / gmail_tokens などを永続化
     volumes:
       - ./:/app
     command: ["python", "main.py"]
+    # ─── 追記 ───
+    networks:
+      - bot-network
 
   cloudflare-tunnel:
     image: cloudflare/cloudflared:latest
     container_name: cloudflare-tunnel
     restart: unless-stopped
-    command: tunnel --no-autoupdate run --token YOUR_COPIED_TOKEN_HERE
-    environment:
-      - eyJhIjoiYjFlMGE4NzZhOTczMmU0YzA0ZTBlN2VmY2QwYzQwZjgiLCJ0IjoiNjU3YjYyZDgtYTFjMy00N2UzLWJiNmItNGQxOGI2Mjg1ODQ0IiwicyI6Ik5HTmhNak01TkRRdE5qWmtZeTAwTjJFeUxUZ3pNMk10WkRZMVlqRmxNRE5sWlRkayJ9
+    command: tunnel --no-autoupdate run --eyJhIjoiYjFlMGE4NzZhOTczMmU0YzA0ZTBlN2VmY2QwYzQwZjgiLCJ0IjoiNjU3YjYyZDgtYTFjMy00N2UzLWJiNmItNGQxOGI2Mjg1ODQ0IiwicyI6Ik5HTmhNak01TkRRdE5qWmtZeTAwTjJFeUxUZ3pNMk10WkRZMVlqRmxNRE5sWlRkayJ9
+    # ─── 追記 ───
+    networks:
+      - bot-network
+
+# ─── 最下部に以下を丸ごと追記 ───
+networks:
+  bot-network:
+    driver: bridge
