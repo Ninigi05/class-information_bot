@@ -298,8 +298,10 @@ def _resolve_gmail_credentials_path() -> str:
 # ============ ヘルスチェック ============
 
 
-@web_app.get("/")
-async def read_index():
+@web_app.get("/{rest_of_path:path}")
+async def catch_all(rest_of_path: str):
+    if rest_of_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not Found")
     return FileResponse("web/index.html")
 
 
