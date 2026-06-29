@@ -17,7 +17,6 @@ services:
     volumes:
       - ./:/app
     command: ["python", "main.py"]
-    # ─── 追記 ───
     networks:
       - bot-network
 
@@ -25,12 +24,14 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: cloudflare-tunnel
     restart: unless-stopped
-    command: tunnel --no-autoupdate run -eyJhIjoiYjFlMGE4NzZhOTczMmU0YzA0ZTBlN2VmY2QwYzQwZjgiLCJ0IjoiNjU3YjYyZDgtYTFjMy00N2UzLWJiNmItNGQxOGI2Mjg1ODQ0IiwicyI6Ik5HTmhNak01TkRRdE5qWmtZeTAwTjJFeUxUZ3pNMk10WkRZMVlqRmxNRE5sWlRkayJ9
-    # ─── 追記 ───
+    # ─── command を短くシンプルに変更 ───
+    command: tunnel run
+    # ─── トークンは環境変数で安全に渡す ───
+    environment:
+      - TUNNEL_TOKEN=eyJhIjoiYjFlMGE4NzZhOTczMmU0YzA0ZTBlN2VmY2QwYzQwZjgiLCJ0IjoiNjU3YjYyZDgtYTFjMy00N2UzLWJiNmItNGQxOGI2Mjg1ODQ0IiwicyI6Ik5HTmhMak01TkRRdE5qWmtZeTAwTjJFeUxUZ3pNMk10WkRZMVlqRmxNRE5sWlRkayJ9
     networks:
       - bot-network
 
-# ─── 最下部に以下を丸ごと追記 ───
 networks:
   bot-network:
     driver: bridge
