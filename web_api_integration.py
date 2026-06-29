@@ -645,20 +645,21 @@ async def general_exception_handler(request, exc):
 
 @web_app.get("/{rest_of_path:path}")
 async def catch_all(rest_of_path: str):
-    # API用パスは除外（APIエンドポイントが優先されるためここは通過する）
     if rest_of_path.startswith("api/"):
         raise HTTPException(status_code=404, detail="Not Found")
 
-    # ルートなら index.html
-    if not rest_of_path:
+    # ルートアクセスを正しく処理
+    if not rest_of_path or rest_of_path == ".":
         return FileResponse("web/index.html")
 
-    # webフォルダ内に物理ファイル(exam.html等)が存在すればそれを返す
-    file_path = os.path.join("web", rest_of_path)
+    # 相対パスの "./" を除去して正規化
+    clean_path = rest_of_path.lstrip("./")
+    file_path = os.path.join("web", clean_path)
+
+    # 物理ファイルが存在すれば返す
     if os.path.exists(file_path) and os.path.isfile(file_path):
         return FileResponse(file_path)
 
-    # 存在しなければ index.html を返す
     return FileResponse("web/index.html")
 
 
