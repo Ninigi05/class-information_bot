@@ -1,23 +1,21 @@
+Apply
 """
 FastAPI Web統合モジュール
 Discord Bot と並行して動作する Web API サーバー
 """
-
 import logging
-from threading import Thread
-from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from fastapi.encoders import jsonable_encoder
 import os
 import glob
+from threading import Thread
 from typing import Optional, Any, Literal
 from pydantic import BaseModel, Field
 from google_auth_oauthlib.flow import Flow
+
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.encoders import jsonable_encoder
 
 from utils import (
     load_user_data,
@@ -41,8 +39,9 @@ web_app = FastAPI(
     version="1.0.0",
 )
 
-# webフォルダにある静的ファイル(css/js/画像等)を /static で配信
+# 静的ファイル配信
 web_app.mount("/static", StaticFiles(directory="web"), name="static")
+
 
 # ============ CORS 設定 ============
 # GitHub Pages など複数のドメインから利用可能に
@@ -296,13 +295,6 @@ def _resolve_gmail_credentials_path() -> str:
 
 
 # ============ ヘルスチェック ============
-
-
-@web_app.get("/{rest_of_path:path}")
-async def catch_all(rest_of_path: str):
-    if rest_of_path.startswith("api/"):
-        raise HTTPException(status_code=404, detail="Not Found")
-    return FileResponse("web/index.html")
 
 
 @web_app.get("/api/health")
@@ -651,32 +643,34 @@ async def general_exception_handler(request, exc):
     )
 
 
+@web_app.get("/{rest_of_path:path}")
+async def catch_all(rest_of_path: str):
+    # API用パスは除外（APIエンドポイントが優先されるためここは通過する）
+    if rest_of_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    # ルートなら index.html
+    if not rest_of_path:
+        return FileResponse("web/index.html")
+
+    # webフォルダ内に物理ファイル(exam.html等)が存在すればそれを返す
+    file_path = os.path.join("web", rest_of_path)
+    if os.path.exists(file_path) and os.path.isfile(file_path):
+        return FileResponse(file_path)
+
+    # 存在しなければ index.html を返す
+    return FileResponse("web/index.html")
+
+
 # ============ Web サーバーの起動・管理 ============
 
 
 def start_web_server(host: str = "0.0.0.0", port: int = 8000):
-    """
-    FastAPI Web サーバーをスレッドで起動
-    （Discord Bot と並行実行するため）
-
-    Args:
-        host: バインドするホストアドレス
-        port: バインドするポート番号
-    """
     import uvicorn
 
-    config = uvicorn.Config(
-        app=web_app,
-        host=host,
-        port=port,
-        log_level="info",
-    )
-    server = uvicorn.Server(config)
-
-    # スレッドで実行
-    thread = Thread(target=server.run, daemon=True)
+    config = uvicorn.Config(app=web_app, host=host, port=port, log_level="info")
+    thread = Thread(target=uvicorn.Server(config).run, daemon=True)
     thread.start()
-    logger.info(f"Web API サーバーを起動しました: {host}:{port}")
     return thread
 
 
