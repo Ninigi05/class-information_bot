@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="google-site-verification" content="GYcBr85bd_gvAGQdALnQMxhxpf36t6_s8N8xk_PpmNc" />
+  <title>Class information bot | 使い方ガイド</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen">
+  <main class="max-w-5xl mx-auto p-4 md:p-8 space-y-6">
+    <section class="bg-white rounded-2xl shadow border border-slate-200 p-5 md:p-7">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-extrabold">使い方ガイド</h1>
+          <p class="text-sm text-slate-600 mt-1">授業登録WebからDiscord反映まで、迷わず進めるための手順です。</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <a href="./index.html" class="px-4 py-2 rounded-lg bg-indigo-600 text-white font-bold hover:bg-indigo-700">通常ページへ</a>
+          <a href="./exam.html" class="px-4 py-2 rounded-lg bg-cyan-600 text-white font-bold hover:bg-cyan-700">試験ページへ</a>
+          <a href="./privacy.html" class="px-4 py-2 rounded-lg bg-slate-700 text-white font-bold hover:bg-slate-800">プライバシーポリシー</a>
+          <a href="./terms.html" class="px-4 py-2 rounded-lg bg-slate-700 text-white font-bold hover:bg-slate-800">利用規約</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="bg-emerald-50 border border-emerald-200 rounded-2xl p-5 md:p-7 space-y-3">
+      <h2 class="text-lg font-bold text-emerald-900">最短3ステップ（まずはここだけ）</h2>
+      <ol class="list-decimal pl-6 space-y-2 text-sm leading-6">
+        <li>通常ページで授業を入力し、必要なら通知設定も入力する。</li>
+        <li>「全体キーを発行」を押してキーを取得する。</li>
+        <li>Discordで <span class="font-semibold">/web applykey キー</span> を実行して反映する。</li>
+      </ol>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow border border-slate-200 p-5 md:p-7 space-y-4">
+      <h2 class="text-lg font-bold">準備: Discordサーバーに参加する</h2>
+      <ol class="list-decimal pl-6 space-y-2 text-sm leading-6">
+        <li>このページのヘッダー（またはトップページ）の「Discordサーバーに参加」ボタンをクリックします。</li>
+        <li>Discord のサーバー招待ページが開いて、サーバーへの参加が確認されます。</li>
+        <li>参加後、Bot → ダイレクトメッセージ欄からBotと会話できるようになります。</li>
+      </ol>
+      <div class="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm">
+        <p class="font-bold text-blue-900">重要</p>
+        <p class="mt-1 text-blue-900">Botはサーバー内でも DM でもコマンドが使えます。プライベートで作業したい場合は DM でコマンドを実行してください。</p>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow border border-slate-200 p-5 md:p-7 space-y-4">
+      <h2 class="text-lg font-bold">手順1: 通常時間割を登録する</h2>
+      <ol class="list-decimal pl-6 space-y-2 text-sm leading-6">
+        <li><a href="./index.html" class="text-indigo-700 underline font-semibold">通常ページ</a>を開きます。</li>
+        <li>上部の「前期 / 後期」を選びます。</li>
+        <li>時間割表のセルをクリックして、科目名と教室を入力します。</li>
+      </ol>
+      <p class="text-xs text-slate-500">同じブラウザ内では下書きが保持されます。</p>
+      <figure class="my-4 rounded-lg border border-slate-300 bg-slate-50 overflow-hidden">
+        <img src="./images/step1-timetable.png" alt="手順1: 時間割ページで授業情報を入力する。通常ページで前期/後期を選択し、時間割表のセルをクリックして科目名と教室を入力します。" class="w-full h-auto" loading="lazy" />
+      </figure>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow border border-slate-200 p-5 md:p-7 space-y-4">
+      <h2 class="text-lg font-bold">手順2: 必要な設定を追加する</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm leading-6">
+        <div class="rounded-lg border border-slate-200 p-4 bg-slate-50">
+          <h3 class="font-bold">通知設定</h3>
+          <p class="mt-1">通常ページの「通知設定」で、授業前通知の分数と朝通知時刻を設定します。</p>
+        </div>
+        <div class="rounded-lg border border-slate-200 p-4 bg-slate-50">
+          <h3 class="font-bold">曜日・教室の上書き</h3>
+          <p class="mt-1">祝日振替や教室変更がある日は、通常ページの上書き設定を追加します。</p>
+        </div>
+        <div class="rounded-lg border border-slate-200 p-4 bg-slate-50">
+          <h3 class="font-bold">試験時間割</h3>
+          <p class="mt-1"><a href="./exam.html" class="text-cyan-700 underline font-semibold">試験ページ</a>で試験期間の時間割を登録します。</p>
+        </div>
+        <div class="rounded-lg border border-slate-200 p-4 bg-slate-50">
+          <h3 class="font-bold">Gmail休講連携（任意）</h3>
+          <p class="mt-1">通常ページで認証URLを開き、取得した code を入力してGmail認証キーを発行できます。</p>
+        </div>
+      </div>
+      <figure class="my-4 rounded-lg border border-slate-300 bg-slate-50 overflow-hidden">
+        <img src="./images/step2-settings.png" alt="手順2: 通知設定、上書き設定、試験時間割、Gmail認証などの設定セクション。各セクションで必要な情報を入力できます。" class="w-full h-auto" loading="lazy" />
+      </figure>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow border border-slate-200 p-5 md:p-7 space-y-4">
+      <h2 class="text-lg font-bold">手順3: キー発行とDiscord反映</h2>
+      <ol class="list-decimal pl-6 space-y-2 text-sm leading-6">
+        <li>通常ページまたは試験ページの「機能別キー発行」で必要なキーを発行します。</li>
+        <li>DiscordのBotとのチャットで <span class="font-semibold">/web applykey キー</span> を実行します。</li>
+        <li>Botから「反映完了」の案内が届けば登録完了です。</li>
+      </ol>
+      <figure class="my-4 rounded-lg border border-slate-300 bg-slate-50 overflow-hidden">
+        <img src="./images/step3-keyissue.png" alt="手順3: 機能別キー発行セクション。全体キーや機能別キーを発行するボタンが表示されます。発行されたキーをコピーしてDiscordで /web applykey コマンドに貼り付けます。" class="w-full h-auto" loading="lazy" />
+      </figure>
+      <div class="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm">
+        <p class="font-bold text-amber-900">ポイント</p>
+        <p class="mt-1 text-amber-900">キーには有効期限があります。期限切れの場合はWeb側で再発行してください。</p>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow border border-slate-200 p-5 md:p-7 space-y-4">
+      <h2 class="text-lg font-bold">よくあるつまずき</h2>
+      <ul class="list-disc pl-6 space-y-2 text-sm leading-6">
+        <li>DMが届かない: DiscordのDM受信設定を確認し、再度コマンドを実行してください。</li>
+        <li>反映されない: 発行したキーが最新か、貼り付け時に空白が入っていないか確認してください。</li>
+        <li>試験設定が見えない: 前期/後期の切り替え先が合っているか確認してください。</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>

@@ -14,6 +14,10 @@ import glob
 from typing import Optional, Any, Literal
 from pydantic import BaseModel, Field
 from google_auth_oauthlib.flow import Flow
+from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 from utils import (
     load_user_data,
@@ -36,6 +40,9 @@ web_app = FastAPI(
     description="Discord Bot のデータベースをWeb経由で操作",
     version="1.0.0",
 )
+
+# webフォルダにある静的ファイル(css/js/画像等)を /static で配信
+web_app.mount("/static", StaticFiles(directory="web"), name="static")
 
 # ============ CORS 設定 ============
 # GitHub Pages など複数のドメインから利用可能に
@@ -291,6 +298,11 @@ def _resolve_gmail_credentials_path() -> str:
 # ============ ヘルスチェック ============
 
 
+@web_app.get("/")
+async def read_index():
+    return FileResponse("web/index.html")
+
+
 @web_app.get("/api/health")
 async def health_check():
     """ヘルスチェック"""
@@ -343,7 +355,9 @@ async def issue_link_key(payload: dict[str, Any]):
             feature = "all"
 
         # Extract term from _meta if present
-        term = normalize_term_key((payload.get("_meta") or {}).get("term") or TERM_FIRST)
+        term = normalize_term_key(
+            (payload.get("_meta") or {}).get("term") or TERM_FIRST
+        )
 
         link_payload = _build_feature_payload(draft, feature, term)
         key, expires_at = create_link_key(link_payload)

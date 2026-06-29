@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="google-site-verification" content="GYcBr85bd_gvAGQdALnQMxhxpf36t6_s8N8xk_PpmNc" />
+  <title>Class information bot | 授業登録 Web</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen">
+  <main class="max-w-6xl mx-auto p-4 md:p-8 space-y-6">
+    <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-extrabold">Class information bot</h1>
+          <p class="text-base font-semibold text-slate-700 mt-1">授業登録（Web）</p>
+          <p class="text-sm text-slate-600 mt-1">登録後に機能ごとのキーを発行し、Discord の /web applykey で反映します。</p>
+          <div class="flex gap-2 mt-3">
+            <button type="button" id="termToggle1st" class="px-3 py-1.5 rounded text-sm font-bold bg-emerald-600 text-white hover:bg-emerald-700">前期</button>
+            <button type="button" id="termToggle2nd" class="px-3 py-1.5 rounded text-sm font-bold bg-slate-300 text-slate-700 hover:bg-slate-400">後期</button>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <a href="./guide.html" class="px-4 py-2 rounded-lg bg-amber-500 text-white font-bold hover:bg-amber-600">使い方ガイド</a>
+          <a href="https://discord.gg/5dJpUbgB4X" target="_blank" rel="noopener" class="px-4 py-2 rounded-lg bg-sky-600 text-white font-bold hover:bg-sky-700">Discordサーバーに参加</a>
+          <a href="./exam.html" class="px-4 py-2 rounded-lg bg-indigo-600 text-white font-bold hover:bg-indigo-700">試験時間割ページへ</a>
+          <a href="./privacy.html" class="px-4 py-2 rounded-lg bg-slate-700 text-white font-bold hover:bg-slate-800">プライバシーポリシー</a>
+          <a href="./terms.html" class="px-4 py-2 rounded-lg bg-slate-700 text-white font-bold hover:bg-slate-800">利用規約</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="bg-blue-50 rounded-2xl shadow-md border-2 border-blue-300 p-6 md:p-8 space-y-3">
+      <div class="flex items-start gap-3">
+        <div class="text-3xl">💡</div>
+        <div>
+          <h2 class="text-lg font-bold text-blue-900">はじめてご利用の方へ</h2>
+          <p class="text-sm text-blue-800 mt-1">使い方がわからない方は、まず使い方ガイドページをご覧ください。最短3ステップで設定完了できます。</p>
+          <a href="./guide.html" class="inline-block mt-3 px-5 py-2.5 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700">📖 使い方ガイドを見る</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7 space-y-4">
+      <h2 class="text-lg font-bold">通常時間割</h2>
+      <div class="overflow-x-auto">
+        <table id="timetable" class="min-w-full border border-slate-300"></table>
+      </div>
+      <p class="text-xs text-slate-500">セルクリックで授業追加/編集</p>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7 space-y-4">
+      <h2 class="text-lg font-bold">通知設定</h2>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <label class="block"><span class="text-sm font-semibold">授業前通知 1回目（分）</span><input id="normalFirst" type="number" min="1" value="15" class="mt-1 w-full rounded border-slate-300" /></label>
+        <label class="block"><span class="text-sm font-semibold">授業前通知 2回目（分）</span><input id="normalSecond" type="number" min="1" value="10" class="mt-1 w-full rounded border-slate-300" /></label>
+        <label class="block"><span class="text-sm font-semibold">朝の一覧通知時刻</span><input id="morningTime" type="time" value="08:00" class="mt-1 w-full rounded border-slate-300" /></label>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7 space-y-4">
+      <h2 class="text-lg font-bold">時間割の上書き設定</h2>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+        <label><span class="text-sm">曜日変更 日付</span><input id="ovDayDate" type="date" class="mt-1 w-full rounded border-slate-300" /></label>
+        <label><span class="text-sm">変更先曜日</span><select id="ovDayWeekday" class="mt-1 w-full rounded border-slate-300"></select></label>
+        <button type="button" id="addDayOverride" class="px-4 py-2 rounded bg-cyan-600 text-white font-bold hover:bg-cyan-700">曜日上書き追加</button>
+      </div>
+      <div id="dayOverrideList" class="text-sm text-slate-700"></div>
+
+      <hr class="my-2" />
+
+      <div class="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+        <label><span class="text-sm">教室変更 日付</span><input id="ovRoomDate" type="date" class="mt-1 w-full rounded border-slate-300" /></label>
+        <label><span class="text-sm">時限</span><select id="ovRoomPeriod" class="mt-1 w-full rounded border-slate-300"></select></label>
+        <label><span class="text-sm">新しい教室</span><input id="ovRoomValue" type="text" class="mt-1 w-full rounded border-slate-300" /></label>
+        <button type="button" id="addRoomOverride" class="px-4 py-2 rounded bg-cyan-600 text-white font-bold hover:bg-cyan-700">教室上書き追加</button>
+      </div>
+      <div id="roomOverrideList" class="text-sm text-slate-700"></div>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7 space-y-4">
+      <h2 class="text-lg font-bold">Gmail休講認証（Web）</h2>
+      <div class="flex flex-wrap gap-2">
+        <button type="button" id="openGmailAuth" class="px-4 py-2 rounded bg-amber-600 text-white font-bold hover:bg-amber-700">認証URLを取得</button>
+        <a id="gmailAuthUrl" href="#" target="_blank" rel="noopener" class="hidden px-4 py-2 rounded bg-amber-100 text-amber-900 font-semibold border border-amber-300">Gmail認証ページを開く</a>
+      </div>
+      <label class="block"><span class="text-sm">取得した認証コード（code）</span><input id="gmailAuthCode" type="text" class="mt-1 w-full rounded border-slate-300" placeholder="4/0Ab..." /></label>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7 space-y-3">
+      <h2 class="text-lg font-bold">連携キー発行（機能別）</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        <button type="button" id="issueKeyAll" class="px-4 py-2.5 rounded-lg bg-emerald-600 text-white font-extrabold hover:bg-emerald-700">全体キーを発行</button>
+        <button type="button" id="issueKeyClasses" class="px-4 py-2.5 rounded-lg bg-cyan-600 text-white font-extrabold hover:bg-cyan-700">通常時間割キー</button>
+        <button type="button" id="issueKeyNotify" class="px-4 py-2.5 rounded-lg bg-cyan-600 text-white font-extrabold hover:bg-cyan-700">通知設定キー</button>
+        <button type="button" id="issueKeyOverrides" class="px-4 py-2.5 rounded-lg bg-cyan-600 text-white font-extrabold hover:bg-cyan-700">上書き設定キー</button>
+        <button type="button" id="issueKeyGmail" class="px-4 py-2.5 rounded-lg bg-amber-600 text-white font-extrabold hover:bg-amber-700">Gmail認証キー</button>
+        <button type="button" id="issueKeyExam" class="px-4 py-2.5 rounded-lg bg-indigo-600 text-white font-extrabold hover:bg-indigo-700">試験設定キー</button>
+      </div>
+      <div id="result" class="hidden rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-sm"></div>
+    </section>
+  </main>
+
+  <dialog id="classDialog" class="rounded-xl p-0 w-[min(92vw,440px)] backdrop:bg-slate-900/30">
+    <form method="dialog" class="p-0">
+      <div class="px-5 py-4 border-b bg-slate-50"><h3 class="text-lg font-bold" id="classDialogTitle">授業編集</h3></div>
+      <div class="p-5 space-y-3">
+        <p id="classDialogSlot" class="text-sm text-slate-600"></p>
+        <label class="block"><span class="text-sm">科目名</span><input id="dlgSubject" type="text" class="mt-1 w-full rounded border-slate-300" /></label>
+        <label class="block"><span class="text-sm">教室</span><input id="dlgRoom" type="text" class="mt-1 w-full rounded border-slate-300" /></label>
+      </div>
+      <div class="px-5 py-4 border-t bg-slate-50 flex justify-end gap-2">
+        <button id="dlgDelete" value="cancel" class="px-3 py-2 rounded bg-rose-100 text-rose-700 font-bold">削除</button>
+        <button value="cancel" class="px-3 py-2 rounded bg-slate-200 font-bold">閉じる</button>
+        <button id="dlgSave" value="default" class="px-3 py-2 rounded bg-cyan-600 text-white font-bold">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script>
+    const BACKEND = "https://commit-bond-gps-referenced.trycloudflare.com";
+    const STORAGE_KEY = "web_reg_draft_v2";
+    const TERM_STORAGE_KEY = "web_current_term";
+    const weekdays = ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"];
+    const periods = ["1", "2", "3", "4", "5", "6"];
+
+    let currentTerm = localStorage.getItem(TERM_STORAGE_KEY) || "前期";
+
+    const draft = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null") || {
+      classes_by_term: { "前期": [], "後期": [] },
+      notify: { normal_first: 15, normal_second: 10, exam_first: 30, exam_second: 25, morning_time: "08:00" },
+      period_overrides: {},
+      day_overrides: [],
+      room_overrides: [],
+      exam_schedules_by_term: { "前期": [], "後期": [] },
+      exam_period_overrides: {},
+      gmail_auth_code: "",
+    };
+
+    // Migration for old single-term structure
+    if (Array.isArray(draft.classes)) {
+      draft.classes_by_term = { "前期": draft.classes, "後期": [] };
+      delete draft.classes;
+    }
+    if (Array.isArray(draft.exam_schedules)) {
+      draft.exam_schedules_by_term = { "前期": draft.exam_schedules, "後期": [] };
+      delete draft.exam_schedules;
+    }
+
+    const el = {
+      termToggle1st: document.getElementById("termToggle1st"),
+      termToggle2nd: document.getElementById("termToggle2nd"),
+      timetable: document.getElementById("timetable"),
+      normalFirst: document.getElementById("normalFirst"),
+      normalSecond: document.getElementById("normalSecond"),
+      morningTime: document.getElementById("morningTime"),
+      ovDayDate: document.getElementById("ovDayDate"),
+      ovDayWeekday: document.getElementById("ovDayWeekday"),
+      addDayOverride: document.getElementById("addDayOverride"),
+      dayOverrideList: document.getElementById("dayOverrideList"),
+      ovRoomDate: document.getElementById("ovRoomDate"),
+      ovRoomPeriod: document.getElementById("ovRoomPeriod"),
+      ovRoomValue: document.getElementById("ovRoomValue"),
+      addRoomOverride: document.getElementById("addRoomOverride"),
+      roomOverrideList: document.getElementById("roomOverrideList"),
+      openGmailAuth: document.getElementById("openGmailAuth"),
+      gmailAuthUrl: document.getElementById("gmailAuthUrl"),
+      gmailAuthCode: document.getElementById("gmailAuthCode"),
+      issueKeyAll: document.getElementById("issueKeyAll"),
+      issueKeyClasses: document.getElementById("issueKeyClasses"),
+      issueKeyNotify: document.getElementById("issueKeyNotify"),
+      issueKeyOverrides: document.getElementById("issueKeyOverrides"),
+      issueKeyGmail: document.getElementById("issueKeyGmail"),
+      issueKeyExam: document.getElementById("issueKeyExam"),
+      result: document.getElementById("result"),
+      classDialog: document.getElementById("classDialog"),
+      classDialogTitle: document.getElementById("classDialogTitle"),
+      classDialogSlot: document.getElementById("classDialogSlot"),
+      dlgSubject: document.getElementById("dlgSubject"),
+      dlgRoom: document.getElementById("dlgRoom"),
+      dlgSave: document.getElementById("dlgSave"),
+      dlgDelete: document.getElementById("dlgDelete"),
+    };
+
+    let editing = null;
+
+    function persist() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
+    }
+
+    function wireEnterFlow(elements, onLast) {
+      elements.forEach((elRef, idx) => {
+        elRef.addEventListener("keydown", (e) => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          const next = elements[idx + 1];
+          if (next) {
+            next.focus();
+            if (typeof next.select === "function") next.select();
+            return;
+          }
+          onLast();
+        });
+      });
+    }
+
+    function classAt(weekday, period) {
+      const classes = draft.classes_by_term[currentTerm] || [];
+      return classes.find(c => c.weekday === weekday && String(c.period) === String(period)) || null;
+    }
+
+    function setClass(weekday, period, subject, room) {
+      draft.classes_by_term[currentTerm] = (draft.classes_by_term[currentTerm] || []).filter(c => !(c.weekday === weekday && String(c.period) === String(period)));
+      if (subject && room) draft.classes_by_term[currentTerm].push({ weekday, period: String(period), subject, room });
+      persist();
+      renderTimetable();
+    }
+
+    function renderTimetable() {
+      let html = "<thead><tr><th class='border p-2 bg-slate-100'>時限</th>";
+      for (const w of weekdays) html += `<th class='border p-2 bg-slate-100'>${w}</th>`;
+      html += "</tr></thead><tbody>";
+      for (const p of periods) {
+        html += `<tr><td class='border p-2 bg-slate-50 text-center font-bold'>${p}限</td>`;
+        for (const w of weekdays) {
+          const c = classAt(w, p);
+          html += `<td class='border p-1'>
+            <button class='w-full min-h-[66px] text-left rounded ${c ? "bg-cyan-50 hover:bg-cyan-100 border border-cyan-200" : "bg-white hover:bg-slate-50 border border-dashed border-slate-300"}' data-weekday='${w}' data-period='${p}'>
+              ${c ? `<div class='font-bold text-cyan-900 text-sm'>${escapeHtml(c.subject)}</div><div class='text-xs text-cyan-700'>${escapeHtml(c.room)}</div>` : "<div class='text-xs text-slate-400'>追加</div>"}
+            </button>
+          </td>`;
+        }
+        html += "</tr>";
+      }
+      html += "</tbody>";
+      el.timetable.innerHTML = html;
+      el.timetable.querySelectorAll("button[data-weekday]").forEach(btn => {
+        btn.addEventListener("click", () => openClassDialog(btn.dataset.weekday, btn.dataset.period));
+      });
+    }
+
+    function openClassDialog(weekday, period) {
+      const cur = classAt(weekday, period);
+      editing = { weekday, period };
+      el.classDialogTitle.textContent = cur ? "授業編集" : "授業追加";
+      el.classDialogSlot.textContent = `${weekday} ${period}限`;
+      el.dlgSubject.value = cur?.subject || "";
+      el.dlgRoom.value = cur?.room || "";
+      el.dlgDelete.style.display = cur ? "inline-block" : "none";
+      el.classDialog.showModal();
+    }
+
+    function renderOverrideLists() {
+      el.dayOverrideList.innerHTML = draft.day_overrides.length
+        ? draft.day_overrides.map((x, i) => `<div class='py-1'>${x.date} → ${x.weekday} <button class='text-rose-700 underline' data-day-rm='${i}'>削除</button></div>`).join("")
+        : "<div class='text-slate-400'>未設定</div>";
+      el.roomOverrideList.innerHTML = draft.room_overrides.length
+        ? draft.room_overrides.map((x, i) => `<div class='py-1'>${x.date} ${x.period}限 → ${escapeHtml(x.room)} <button class='text-rose-700 underline' data-room-rm='${i}'>削除</button></div>`).join("")
+        : "<div class='text-slate-400'>未設定</div>";
+
+      el.dayOverrideList.querySelectorAll("button[data-day-rm]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          draft.day_overrides.splice(Number(btn.dataset.dayRm), 1);
+          persist();
+          renderOverrideLists();
+        });
+      });
+      el.roomOverrideList.querySelectorAll("button[data-room-rm]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          draft.room_overrides.splice(Number(btn.dataset.roomRm), 1);
+          persist();
+          renderOverrideLists();
+        });
+      });
+    }
+
+    async function fetchGmailAuthUrl() {
+      let res;
+      try {
+        res = await fetch(`${BACKEND}/api/public/gmail-auth-url`);
+      } catch (e) {
+        throw new Error(`バックエンドに接続できません: ${BACKEND}`);
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || "Gmail認証URLの取得に失敗しました");
+      }
+      return res.json();
+    }
+
+    async function issueLinkKey(feature) {
+      const data = {
+        ...draft,
+        notify: {
+          ...draft.notify,
+          normal_first: Number(el.normalFirst.value || 15),
+          normal_second: Number(el.normalSecond.value || 10),
+          morning_time: el.morningTime.value || "08:00",
+        },
+        gmail_auth_code: (el.gmailAuthCode.value || "").trim(),
+      };
+
+      const body = {
+        feature: feature || "all",
+        data,
+        _meta: { term: currentTerm },
+      };
+
+      let res;
+      try {
+        res = await fetch(`${BACKEND}/api/public/issue-link-key`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      } catch (e) {
+        throw new Error(`バックエンドに接続できません: ${BACKEND}`);
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+      return res.json();
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    // init controls
+    weekdays.forEach(w => {
+      const o = document.createElement("option");
+      o.value = w;
+      o.textContent = w;
+      el.ovDayWeekday.appendChild(o);
+    });
+    periods.forEach(p => {
+      const o = document.createElement("option");
+      o.value = p;
+      o.textContent = `${p}限`;
+      el.ovRoomPeriod.appendChild(o);
+    });
+
+    el.normalFirst.value = draft.notify?.normal_first ?? 15;
+    el.normalSecond.value = draft.notify?.normal_second ?? 10;
+    el.morningTime.value = draft.notify?.morning_time ?? "08:00";
+    el.gmailAuthCode.value = draft.gmail_auth_code || "";
+
+    el.dlgSave.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (!editing) return;
+      setClass(editing.weekday, editing.period, el.dlgSubject.value.trim(), el.dlgRoom.value.trim());
+      el.classDialog.close();
+    });
+
+    el.dlgDelete.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (!editing) return;
+      setClass(editing.weekday, editing.period, "", "");
+      el.classDialog.close();
+    });
+
+    el.addDayOverride.addEventListener("click", () => {
+      const date = el.ovDayDate.value;
+      const weekday = el.ovDayWeekday.value;
+      if (!date || !weekday) return;
+      draft.day_overrides.push({ date, weekday });
+      persist();
+      renderOverrideLists();
+    });
+
+    el.addRoomOverride.addEventListener("click", () => {
+      const date = el.ovRoomDate.value;
+      const period = el.ovRoomPeriod.value;
+      const room = el.ovRoomValue.value.trim();
+      if (!date || !period || !room) return;
+      draft.room_overrides.push({ date, period, room });
+      persist();
+      renderOverrideLists();
+    });
+
+    el.openGmailAuth.addEventListener("click", async () => {
+      try {
+        const data = await fetchGmailAuthUrl();
+        el.gmailAuthUrl.href = data.auth_url;
+        el.gmailAuthUrl.classList.remove("hidden");
+      } catch (e) {
+        alert(e.message || "Gmail認証URL取得失敗");
+      }
+    });
+
+    const featureNames = {
+      all: "全体",
+      classes: "通常時間割",
+      notify: "通知設定",
+      overrides: "上書き設定",
+      gmail: "Gmail認証",
+      exam: "試験設定",
+    };
+
+    async function runIssue(feature) {
+      try {
+        const data = await issueLinkKey(feature);
+        el.result.classList.remove("hidden");
+        el.result.innerHTML = `
+          <div class='font-bold'>対象機能: ${escapeHtml(featureNames[data.feature] || data.feature || feature)}</div>
+          <div class='font-bold'>連携キー: <span class='text-xl'>${escapeHtml(data.link_key)}</span></div>
+          <div class='mt-2'>有効期限: ${escapeHtml(data.expires_at)}</div>
+          <div class='mt-2'>Discordで以下を実行してください:</div>
+          <div class='mt-1 p-2 bg-white border rounded font-mono'>/web applykey key:${escapeHtml(data.link_key)}</div>
+        `;
+      } catch (e) {
+        alert(e.message || "キー発行失敗");
+      }
+    }
+
+    el.termToggle1st.addEventListener("click", () => {
+      currentTerm = "前期";
+      localStorage.setItem(TERM_STORAGE_KEY, currentTerm);
+      el.termToggle1st.classList.add("bg-emerald-600", "text-white", "hover:bg-emerald-700");
+      el.termToggle1st.classList.remove("bg-slate-300", "text-slate-700", "hover:bg-slate-400");
+      el.termToggle2nd.classList.remove("bg-emerald-600", "text-white", "hover:bg-emerald-700");
+      el.termToggle2nd.classList.add("bg-slate-300", "text-slate-700", "hover:bg-slate-400");
+      renderTimetable();
+    });
+
+    el.termToggle2nd.addEventListener("click", () => {
+      currentTerm = "後期";
+      localStorage.setItem(TERM_STORAGE_KEY, currentTerm);
+      el.termToggle2nd.classList.add("bg-emerald-600", "text-white", "hover:bg-emerald-700");
+      el.termToggle2nd.classList.remove("bg-slate-300", "text-slate-700", "hover:bg-slate-400");
+      el.termToggle1st.classList.remove("bg-emerald-600", "text-white", "hover:bg-emerald-700");
+      el.termToggle1st.classList.add("bg-slate-300", "text-slate-700", "hover:bg-slate-400");
+      renderTimetable();
+    });
+
+    // Initialize term toggle button appearance
+    if (currentTerm === "前期") {
+      el.termToggle1st.classList.add("bg-emerald-600", "text-white", "hover:bg-emerald-700");
+      el.termToggle1st.classList.remove("bg-slate-300", "text-slate-700", "hover:bg-slate-400");
+    } else {
+      el.termToggle2nd.classList.add("bg-emerald-600", "text-white", "hover:bg-emerald-700");
+      el.termToggle2nd.classList.remove("bg-slate-300", "text-slate-700", "hover:bg-slate-400");
+    }
+
+    el.issueKeyAll.addEventListener("click", async () => runIssue("all"));
+    el.issueKeyClasses.addEventListener("click", async () => runIssue("classes"));
+    el.issueKeyNotify.addEventListener("click", async () => runIssue("notify"));
+    el.issueKeyOverrides.addEventListener("click", async () => runIssue("overrides"));
+    el.issueKeyGmail.addEventListener("click", async () => runIssue("gmail"));
+    el.issueKeyExam.addEventListener("click", async () => runIssue("exam"));
+
+    [el.normalFirst, el.normalSecond, el.morningTime, el.gmailAuthCode].forEach(inp => {
+      inp.addEventListener("change", () => {
+        draft.notify.normal_first = Number(el.normalFirst.value || 15);
+        draft.notify.normal_second = Number(el.normalSecond.value || 10);
+        draft.notify.morning_time = el.morningTime.value || "08:00";
+        draft.gmail_auth_code = el.gmailAuthCode.value || "";
+        persist();
+      });
+    });
+
+    // Enter: 次項目へ。末尾は保存/追加。
+    wireEnterFlow([el.normalFirst, el.normalSecond, el.morningTime], () => {
+      draft.notify.normal_first = Number(el.normalFirst.value || 15);
+      draft.notify.normal_second = Number(el.normalSecond.value || 10);
+      draft.notify.morning_time = el.morningTime.value || "08:00";
+      persist();
+    });
+
+    wireEnterFlow([el.ovDayDate, el.ovDayWeekday], () => el.addDayOverride.click());
+    wireEnterFlow([el.ovRoomDate, el.ovRoomPeriod, el.ovRoomValue], () => el.addRoomOverride.click());
+    wireEnterFlow([el.gmailAuthCode], () => {
+      draft.gmail_auth_code = el.gmailAuthCode.value || "";
+      persist();
+    });
+
+    wireEnterFlow([el.dlgSubject, el.dlgRoom], () => el.dlgSave.click());
+
+    // Initialize draft - ensure term-aware structure exists
+    draft.classes_by_term = draft.classes_by_term || { "前期": [], "後期": [] };
+    draft.exam_schedules_by_term = draft.exam_schedules_by_term || { "前期": [], "後期": [] };
+    
+    renderTimetable();
+    renderOverrideLists();
+  </script>
+</body>
+</html>
