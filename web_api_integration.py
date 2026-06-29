@@ -1,8 +1,8 @@
-Apply
 """
 FastAPI Web統合モジュール
 Discord Bot と並行して動作する Web API サーバー
 """
+
 import logging
 import os
 import glob
