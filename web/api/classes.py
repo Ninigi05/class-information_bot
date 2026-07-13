@@ -6,7 +6,15 @@ import logging
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from utils import load_user_data, save_user_data, WEEKDAYS, WEEKDAY_MAP, PERIOD_TO_TIME
+from utils import (
+    load_user_data,
+    save_user_data,
+    WEEKDAYS,
+    WEEKDAY_MAP,
+    PERIOD_TO_TIME,
+    get_current_term,
+    normalize_term_key,
+)
 from web.auth import TokenData, get_current_user
 from web.schemas import (
     ClassCreate,
@@ -21,17 +29,17 @@ router = APIRouter(prefix="/api/classes", tags=["classes"])
 
 
 @router.get("", response_model=ListResponse)
-async def get_classes(current_user: TokenData = Depends(get_current_user)):
+async def get_classes(term: str = None, current_user: TokenData = Depends(get_current_user)):
     """
     ログインユーザーの授業一覧を取得
-
     Returns:
         授業リスト
     """
     try:
         user_id = current_user.user_id
         user_data = load_user_data(user_id)
-        classes = user_data.get("classes", [])
+        selected_term = normalize_term_key(term)
+        classes = user_data.get("classes_by_term", {}).get(selected_term, [])
 
         # day フィールドを weekday に変換
         for cls in classes:
@@ -53,6 +61,7 @@ async def get_classes(current_user: TokenData = Depends(get_current_user)):
 @router.post("", response_model=SuccessResponse)
 async def add_class(
     class_data: ClassCreate,
+    term: str = None,
     current_user: TokenData = Depends(get_current_user),
 ):
     """
@@ -67,6 +76,7 @@ async def add_class(
     try:
         user_id = current_user.user_id
         user_data = load_user_data(user_id)
+        selected_term = normalize_term_key(term)
 
         # weekday を day に変換
         if class_data.weekday not in WEEKDAY_MAP:
@@ -82,14 +92,16 @@ async def add_class(
             )
 
         # 同じ曜日・時限の授業が既に存在するかチェック
-        classes = user_data.get("classes", [])
+        user_data.setdefault("classes_by_term", {}).setdefault(selected_term, [])
+        classes = user_data["classes_by_term"][selected_term]
+
         day = WEEKDAY_MAP[class_data.weekday]
         for cls in classes:
-            if cls.get("day") == day and cls.get("period") == class_data.period:
-                raise HTTPException(
+            if cls.get("day") == day and str(cls.get("period")) == str(class_data.period):
+        raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="この曜日・時限には既に授業が登録されています",
-                )
+        )
 
         # 新しい授業を追加
         new_class = {
@@ -99,7 +111,6 @@ async def add_class(
             "room": class_data.room,
         }
         classes.append(new_class)
-        user_data["classes"] = classes
 
         # データを保存
         save_user_data(user_id, user_data)
@@ -123,6 +134,7 @@ async def update_class(
     weekday: str,
     period: str,
     update_data: ClassUpdate,
+    term: str = None,
     current_user: TokenData = Depends(get_current_user),
 ):
     """
@@ -139,7 +151,8 @@ async def update_class(
     try:
         user_id = current_user.user_id
         user_data = load_user_data(user_id)
-        classes = user_data.get("classes", [])
+        selected_term = normalize_term_key(term)
+        classes = user_data.get("classes_by_term", {}).get(selected_term, [])
 
         if weekday not in WEEKDAY_MAP:
             raise HTTPException(
@@ -206,6 +219,7 @@ async def update_class(
 async def delete_class(
     weekday: str,
     period: str,
+    term: str = None,
     current_user: TokenData = Depends(get_current_user),
 ):
     """
@@ -221,7 +235,8 @@ async def delete_class(
     try:
         user_id = current_user.user_id
         user_data = load_user_data(user_id)
-        classes = user_data.get("classes", [])
+        selected_term = normalize_term_key(term)
+        classes = user_data.get("classes_by_term", {}).get(selected_term, [])
 
         if weekday not in WEEKDAY_MAP:
             raise HTTPException(
@@ -245,7 +260,6 @@ async def delete_class(
                 detail="授業が見つかりません",
             )
 
-        user_data["classes"] = classes
         save_user_data(user_id, user_data)
 
         return SuccessResponse(
@@ -262,7 +276,7 @@ async def delete_class(
 
 
 @router.get("/table", response_model=dict)
-async def get_class_table(current_user: TokenData = Depends(get_current_user)):
+async def get_class_table(term: str = None, current_user: TokenData = Depends(get_current_user)):
     """
     時間割テーブル形式でデータを取得（フロント用）
 
@@ -272,7 +286,8 @@ async def get_class_table(current_user: TokenData = Depends(get_current_user)):
     try:
         user_id = current_user.user_id
         user_data = load_user_data(user_id)
-        classes = user_data.get("classes", [])
+        selected_term = normalize_term_key(term)
+        classes = user_data.get("classes_by_term", {}).get(selected_term, [])
 
         # テーブル形式に変換：{weekday: {period: class_info}}
         table = {}
@@ -296,3 +311,4 @@ async def get_class_table(current_user: TokenData = Depends(get_current_user)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="時間割の取得に失敗しました",
         )
+
