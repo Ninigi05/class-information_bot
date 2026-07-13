@@ -6,7 +6,12 @@ import logging
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from utils import load_user_data, save_user_data
+from utils import (
+    load_user_data,
+    save_user_data,
+    get_current_term,
+    normalize_term_key,
+)
 from web.auth import TokenData, get_current_user
 from web.schemas import (
     MakeupCreate,
@@ -24,7 +29,9 @@ router = APIRouter(tags=["makeup", "cancel"])
 
 
 @router.get("/api/makeup", response_model=ListResponse)
-async def get_makeup_classes(current_user: TokenData = Depends(get_current_user)):
+async def get_makeup_classes(
+    term: str = None, current_user: TokenData = Depends(get_current_user)
+):
     """
     補講一覧を取得
 
@@ -34,7 +41,10 @@ async def get_makeup_classes(current_user: TokenData = Depends(get_current_user)
     try:
         user_id = current_user.user_id
         user_data = load_user_data(user_id)
-        makeup_classes = user_data.get("makeup_classes", [])
+        selected_term = normalize_term_key(term)
+        makeup_classes = user_data.get("makeup_classes_by_term", {}).get(
+            selected_term, []
+        )
 
         return ListResponse(
             count=len(makeup_classes),
@@ -44,13 +54,14 @@ async def get_makeup_classes(current_user: TokenData = Depends(get_current_user)
         logger.exception(f"補講一覧取得エラー: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="補講一覧の取得に失敗しました",
+            detail="取得失敗",
         )
 
 
 @router.post("/api/makeup", response_model=SuccessResponse)
 async def add_makeup_class(
     makeup_data: MakeupCreate,
+    term: str = None,
     current_user: TokenData = Depends(get_current_user),
 ):
     """
@@ -65,8 +76,9 @@ async def add_makeup_class(
     try:
         user_id = current_user.user_id
         user_data = load_user_data(user_id)
-        makeup_classes = user_data.get("makeup_classes", [])
-
+        selected_term = normalize_term_key(term)
+        user_data.setdefault("makeup_classes_by_term", {}).setdefault(selected_term, [])
+        makeup_classes = user_data["makeup_classes_by_term"][selected_term]
         # 同じ日時の補講が存在するかチェック
         for mc in makeup_classes:
             if (
@@ -75,7 +87,7 @@ async def add_makeup_class(
             ):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail="この日時には既に補講が登録されています",
+                    detail="既に存在します",
                 )
 
         new_makeup = {
@@ -85,21 +97,19 @@ async def add_makeup_class(
             "room": makeup_data.room,
         }
         makeup_classes.append(new_makeup)
-        user_data["makeup_classes"] = makeup_classes
-
         save_user_data(user_id, user_data)
 
         return SuccessResponse(
-            message="補講を追加しました",
+            message="追加しました",
             data={"makeup": new_makeup},
         )
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"補講追加エラー: {e}")
+        logger.exception(f"追加エラー: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="補講の追加に失敗しました",
+            detail="失敗しました",
         )
 
 
@@ -107,6 +117,7 @@ async def add_makeup_class(
 async def delete_makeup_class(
     date: str,
     time: str,
+    term: str = None,
     current_user: TokenData = Depends(get_current_user),
 ):
     """
@@ -115,14 +126,16 @@ async def delete_makeup_class(
     Args:
         date: 日付（YYYY-MM-DD）
         time: 時刻（HH:MM）
-
     Returns:
         成功メッセージ
     """
     try:
         user_id = current_user.user_id
         user_data = load_user_data(user_id)
-        makeup_classes = user_data.get("makeup_classes", [])
+        selected_term = normalize_term_key(term)
+        makeup_classes = user_data.get("makeup_classes_by_term", {}).get(
+            selected_term, []
+        )
 
         found = False
         for i, mc in enumerate(makeup_classes):
@@ -137,7 +150,7 @@ async def delete_makeup_class(
                 detail="補講が見つかりません",
             )
 
-        user_data["makeup_classes"] = makeup_classes
+        user_data["makeup_classes_by_term"][selected_term] = makeup_classes
         save_user_data(user_id, user_data)
 
         return SuccessResponse(
@@ -157,7 +170,9 @@ async def delete_makeup_class(
 
 
 @router.get("/api/cancel", response_model=ListResponse)
-async def get_cancel_classes(current_user: TokenData = Depends(get_current_user)):
+async def get_cancel_classes(
+    term: str = None, current_user: TokenData = Depends(get_current_user)
+):
     """
     手動休講一覧を取得
 
@@ -167,7 +182,10 @@ async def get_cancel_classes(current_user: TokenData = Depends(get_current_user)
     try:
         user_id = current_user.user_id
         user_data = load_user_data(user_id)
-        cancel_classes = user_data.get("cancel_classes", [])
+        selected_term = normalize_term_key(term)
+        cancel_classes = user_data.get("cancel_classes_by_term", {}).get(
+            selected_term, []
+        )
 
         return ListResponse(
             count=len(cancel_classes),
@@ -184,6 +202,7 @@ async def get_cancel_classes(current_user: TokenData = Depends(get_current_user)
 @router.post("/api/cancel", response_model=SuccessResponse)
 async def add_cancel_class(
     cancel_data: CancelCreate,
+    term: str = None,
     current_user: TokenData = Depends(get_current_user),
 ):
     """
@@ -198,7 +217,9 @@ async def add_cancel_class(
     try:
         user_id = current_user.user_id
         user_data = load_user_data(user_id)
-        cancel_classes = user_data.get("cancel_classes", [])
+        selected_term = normalize_term_key(term)
+        user_data.setdefault("cancel_classes_by_term", {}).setdefault(selected_term, [])
+        cancel_classes = user_data["cancel_classes_by_term"][selected_term]
 
         # 同じ日付・授業の休講が存在するかチェック
         for cc in cancel_classes:
@@ -216,8 +237,6 @@ async def add_cancel_class(
             "subject": cancel_data.subject,
         }
         cancel_classes.append(new_cancel)
-        user_data["cancel_classes"] = cancel_classes
-
         save_user_data(user_id, user_data)
 
         return SuccessResponse(
@@ -238,6 +257,7 @@ async def add_cancel_class(
 async def delete_cancel_class(
     date: str,
     subject: str,
+    term: str = None,
     current_user: TokenData = Depends(get_current_user),
 ):
     """
@@ -253,7 +273,10 @@ async def delete_cancel_class(
     try:
         user_id = current_user.user_id
         user_data = load_user_data(user_id)
-        cancel_classes = user_data.get("cancel_classes", [])
+        selected_term = normalize_term_key(term)
+        cancel_classes = user_data.get("cancel_classes_by_term", {}).get(
+            selected_term, []
+        )
 
         found = False
         for i, cc in enumerate(cancel_classes):
@@ -268,7 +291,7 @@ async def delete_cancel_class(
                 detail="休講が見つかりません",
             )
 
-        user_data["cancel_classes"] = cancel_classes
+        user_data["cancel_classes_by_term"][selected_term] = cancel_classes
         save_user_data(user_id, user_data)
 
         return SuccessResponse(
