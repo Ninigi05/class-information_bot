@@ -1,6 +1,7 @@
 import json
 import os
 import logging
+import fcntl
 
 BASE_DIR = os.getcwd()
 logger = logging.getLogger(__name__)
@@ -56,12 +57,27 @@ def get_attendance_key(term: str, weekday: int, period: str, subject: str) -> st
     return f"{term}|{weekday}|{period}|{subject}"
 
 
+def get_user_data_mtime(user_id):
+    """ユーザーデータの最終更新時刻を取得する"""
+    path = os.path.join(BASE_DIR, f"user_{user_id}.json")
+    if not os.path.exists(path):
+        return 0
+    return os.path.getmtime(path)
+
+
 def load_user_data(user_id):
     path = os.path.join(BASE_DIR, f"user_{user_id}.json")
     if not os.path.exists(path):
         return {}
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            # 読み込み時も共有ロックを取得して読み込み中の書き込みを防ぐ
+            fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+            data = json.load(f)
+    except (IOError, json.JSONDecodeError) as e:
+        logger.error(f"データ読み込み失敗 user={user_id}: {e}")
+        return {}
+
     # Backward compatibility: migrate old single-term structure to new structure
     data = _migrate_user_data_to_term_aware(data)
     return data
@@ -69,6 +85,7 @@ def load_user_data(user_id):
 
 def _migrate_user_data_to_term_aware(data: dict) -> dict:
     """Migrate legacy single-term data structure to term-aware structure."""
+
     def _normalize_term_map(raw: dict | None) -> dict:
         normalized: dict[str, list] = {TERM_FIRST: [], TERM_SECOND: []}
         if not isinstance(raw, dict):
@@ -110,24 +127,19 @@ def save_user_data(user_id, data):
     data_to_save = dict(data)
     data_to_save.pop("classes", None)  # Remove old single-term keys
     data_to_save.pop("exam_schedules", None)
+
     # Write atomically: write to temp file then replace
     tmp_path = path + ".tmp"
     try:
         with open(tmp_path, "w", encoding="utf-8") as f:
+            # 排他ロックを取得して書き込み
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
             json.dump(data_to_save, f, indent=4, ensure_ascii=False)
             f.flush()
-            try:
-                os.fsync(f.fileno())
-            except Exception:
-                pass
+            os.fsync(f.fileno())
         os.replace(tmp_path, path)
     except Exception:
-        # Fallback to best-effort write
-        try:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(data_to_save, f, indent=4, ensure_ascii=False)
-        except Exception:
-            logger.exception(f"ユーザーデータ保存失敗: {path}")
+        logger.exception(f"ユーザーデータ保存失敗: {path}")
 
 
 async def send_dm(user, message):
