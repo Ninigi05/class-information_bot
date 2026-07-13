@@ -6,9 +6,11 @@ from discord.ext import commands
 from datetime import datetime
 import matplotlib.pyplot as plt
 import japanize_matplotlib
+import logging
 from utils import (
     load_user_data,
     save_user_data,
+    get_user_data_mtime,
     send_dm,
     send_long_dm,
     get_current_term,
@@ -20,11 +22,31 @@ from utils import (
     normalize_term_key,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class ClassCog(commands.GroupCog, name="class"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.user_cache = {}  # {user_id: {"mtime": 0, "data": {}}}
         super().__init__()
+
+    def get_data(self, user_id):
+        current_mtime = get_user_data_mtime(user_id)
+        if user_id not in self.user_cache:
+            logger.info(f"[DEBUG] 初回キャッシュ: user={user_id}")
+        if (
+            user_id not in self.user_cache
+            or self.user_cache[user_id]["mtime"] < current_mtime
+        ):
+            logger.info(
+                f"[DEBUG] キャッシュリロード: user={user_id} (old={self.user_cache.get(user_id, {}).get('mtime')}, new={current_mtime})"
+            )
+            self.user_cache[user_id] = {
+                "mtime": current_mtime,
+                "data": load_user_data(user_id),
+            }
+        return self.user_cache[user_id]["data"]
 
     async def weekday_autocomplete(
         self, interaction: discord.Interaction, current: str
@@ -46,7 +68,7 @@ class ClassCog(commands.GroupCog, name="class"):
         self, interaction: discord.Interaction, current: str
     ):
         user_id = interaction.user.id
-        data = load_user_data(user_id)
+        data = self.get_data(user_id)
         term = get_current_term()
         subjects = []
         for c in data.get("classes_by_term", {}).get(term, []) or []:
@@ -75,7 +97,7 @@ class ClassCog(commands.GroupCog, name="class"):
 
     async def room_autocomplete(self, interaction: discord.Interaction, current: str):
         user_id = interaction.user.id
-        data = load_user_data(user_id)
+        data = self.get_data(user_id)
         term = get_current_term()
         rooms = []
         for c in data.get("classes_by_term", {}).get(term, []) or []:
@@ -171,7 +193,7 @@ class ClassCog(commands.GroupCog, name="class"):
     async def class_table(
         self, interaction: discord.Interaction, term: str | None = None
     ):
-        data = load_user_data(interaction.user.id)
+        data = self.get_data(interaction.user.id)
         selected_term = normalize_term_key(term) if term else get_current_term()
         classes = data.get("classes_by_term", {}).get(selected_term, [])
         if not classes:
@@ -222,7 +244,7 @@ class ClassCog(commands.GroupCog, name="class"):
     ):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
-        data = load_user_data(user_id)
+        data = self.get_data(user_id)
         term = get_current_term()
         data.setdefault("classes_by_term", {}).setdefault(term, [])
         data["classes_by_term"][term] = [
@@ -259,7 +281,7 @@ class ClassCog(commands.GroupCog, name="class"):
     ):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
-        data = load_user_data(user_id)
+        data = self.get_data(user_id)
         term = get_current_term()
         before = len(data.get("classes_by_term", {}).get(term, []))
         data.setdefault("classes_by_term", {}).setdefault(term, [])
@@ -288,7 +310,7 @@ class ClassCog(commands.GroupCog, name="class"):
     ):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
-        data = load_user_data(user_id)
+        data = self.get_data(user_id)
         selected_term = normalize_term_key(term) if term else get_current_term()
         classes = data.get("classes_by_term", {}).get(selected_term, []) or []
         if not classes:
@@ -350,7 +372,6 @@ class ClassCog(commands.GroupCog, name="class"):
             else:
                 cell.set_facecolor("#f8fafc")
                 text.set_color("#0f172a")
-
         img_path = f"class_list_{interaction.user.id}.png"
         fig.savefig(img_path, bbox_inches="tight", dpi=220)
         plt.close(fig)
@@ -386,7 +407,7 @@ class ClassCog(commands.GroupCog, name="class"):
             )
             return
         user_id = interaction.user.id
-        data = load_user_data(user_id)
+        data = self.get_data(user_id)
         term = get_current_term()
         target_weekday = target_date.weekday()
         found = False
@@ -460,7 +481,7 @@ class ClassCog(commands.GroupCog, name="class"):
             )
             return
         user_id = interaction.user.id
-        data = load_user_data(user_id)
+        data = self.get_data(user_id)
         term = get_current_term()
         for cls in data.get("classes_by_term", {}).get(term, []):
             cls.setdefault("overrides", {})[date] = WEEKDAY_MAP[new_weekday]
