@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Class information bot | 授業登録 Webダッシュボード</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen">
+  <main class="max-w-6xl mx-auto p-4 md:p-8 space-y-6">
+    <!-- ヘッダーセクション -->
+    <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-extrabold">Class information bot</h1>
+          <p class="text-base font-semibold text-slate-700 mt-1">マイページ 授業登録（Web）</p>
+          <p class="text-sm text-slate-600 mt-1">現在ログインしているアカウント専用のダッシュボードです。リアルタイムに時間割が保存されます。</p>
+          <div class="flex gap-2 mt-3">
+            <button type="button" id="termToggle1st" class="px-3 py-1.5 rounded text-sm font-bold bg-emerald-600 text-white hover:bg-emerald-700">前期</button>
+            <button type="button" id="termToggle2nd" class="px-3 py-1.5 rounded text-sm font-bold bg-slate-300 text-slate-700 hover:bg-slate-400">後期</button>
+          </div>
+        </div>
+        <div class="flex flex-col items-end gap-3">
+          <div class="flex items-center gap-3 bg-slate-50 border border-slate-200 py-1.5 px-3 rounded-xl">
+            <div id="user-info" class="text-sm font-bold text-slate-700">ユーザー名</div>
+            <button type="button" id="logoutBtn" class="px-2.5 py-1 rounded bg-rose-100 text-rose-700 hover:bg-rose-200 font-bold text-xs transition duration-150">ログアウト</button>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <a href="https://discord.gg/5dJpUbgB4X" target="_blank" rel="noopener" class="px-4 py-2 rounded-lg bg-sky-600 text-white font-bold hover:bg-sky-700 text-sm">Discordサーバー</a>
+            <a href="./privacy.html" class="px-4 py-2 rounded-lg bg-slate-700 text-white font-bold hover:bg-slate-800 text-sm">プライバシーポリシー</a>
+            <a href="./terms.html" class="px-4 py-2 rounded-lg bg-slate-700 text-white font-bold hover:bg-slate-800 text-sm">利用規約</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- メイン時間割テーブル -->
+    <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7 space-y-4">
+      <h2 class="text-lg font-bold flex items-center gap-2">
+        <span>📅 通常時間割</span>
+        <span id="loading-spinner" class="animate-spin rounded-full h-4 w-4 border-2 border-t-blue-600 border-r-transparent border-b-blue-600 border-l-transparent hidden"></span>
+      </h2>
+      <div class="overflow-x-auto">
+        <table id="timetable" class="min-w-full border border-slate-300"></table>
+      </div>
+      <p class="text-xs text-slate-500">セルクリックで授業追加/編集。変更は自動的にサーバーへ保存されます。</p>
+    </section>
+
+    <!-- 通知設定 -->
+    <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7 space-y-4">
+      <h2 class="text-lg font-bold">🔔 通知設定</h2>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <label class="block">
+          <span class="text-sm font-semibold">授業前通知 1回目（分）</span>
+          <input id="normalFirst" type="number" min="1" value="15" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border" />
+        </label>
+        <label class="block">
+          <span class="text-sm font-semibold">授業前通知 2回目（分）</span>
+          <input id="normalSecond" type="number" min="1" value="10" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border" />
+        </label>
+        <label class="block">
+          <span class="text-sm font-semibold">朝の一覧通知時刻</span>
+          <input id="morningTime" type="time" value="08:00" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border" />
+        </label>
+      </div>
+      <div class="flex justify-end">
+        <button id="saveSettingsBtn" type="button" class="px-5 py-2 rounded bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-sm">設定を保存</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- モーダルダイアログ -->
+  <dialog id="classDialog" class="rounded-xl p-0 w-[min(92vw,440px)] backdrop:bg-slate-900/30">
+    <form method="dialog" class="p-0">
+      <div class="px-5 py-4 border-b bg-slate-50"><h3 class="text-lg font-bold" id="classDialogTitle">授業編集</h3></div>
+      <div class="p-5 space-y-3">
+        <p id="classDialogSlot" class="text-sm text-slate-600 font-semibold"></p>
+        <label class="block"><span class="text-sm">科目名</span><input id="dlgSubject" type="text" class="mt-1 w-full rounded border border-slate-300 px-3 py-2" /></label>
+        <label class="block"><span class="text-sm">教室</span><input id="dlgRoom" type="text" class="mt-1 w-full rounded border border-slate-300 px-3 py-2" /></label>
+      </div>
+      <div class="px-5 py-4 border-t bg-slate-50 flex justify-end gap-2">
+        <button id="dlgDelete" type="button" class="px-3 py-2 rounded bg-rose-100 text-rose-700 font-bold hover:bg-rose-200">削除</button>
+        <button id="dlgClose" type="button" class="px-3 py-2 rounded bg-slate-200 hover:bg-slate-300 font-bold">閉じる</button>
+        <button id="dlgSave" type="submit" class="px-3 py-2 rounded bg-cyan-600 text-white hover:bg-cyan-700 font-bold">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script>
+    // ログインチェック
+    const token = localStorage.getItem('token');
+    const userStr = localStorage.getItem('user');
+    if (!token || !userStr) {
+      window.location.href = '/login';
+    }
+
+    const user = JSON.parse(userStr);
+    document.getElementById('user-info').textContent = user.username + ' さん';
+
+    // ログアウト処理
+    document.getElementById('logoutBtn').addEventListener('click', () => {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      window.location.href = '/login';
+    });
+
+    const weekdays = ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"];
+    const periods = ["1", "2", "3", "4", "5", "6"];
+    let currentTerm = "前期";
+    let timetableData = {};
+
+    const el = {
+      termToggle1st: document.getElementById("termToggle1st"),
+      termToggle2nd: document.getElementById("termToggle2nd"),
+      timetable: document.getElementById("timetable"),
+      normalFirst: document.getElementById("normalFirst"),
+      normalSecond: document.getElementById("normalSecond"),
+      morningTime: document.getElementById("morningTime"),
+      saveSettingsBtn: document.getElementById("saveSettingsBtn"),
+      classDialog: document.getElementById("classDialog"),
+      classDialogTitle: document.getElementById("classDialogTitle"),
+      classDialogSlot: document.getElementById("classDialogSlot"),
+      dlgSubject: document.getElementById("dlgSubject"),
+      dlgRoom: document.getElementById("dlgRoom"),
+      dlgSave: document.getElementById("dlgSave"),
+      dlgDelete: document.getElementById("dlgDelete"),
+      dlgClose: document.getElementById("dlgClose"),
+      spinner: document.getElementById("loading-spinner")
+    };
+
+    let editing = null;
+
+    // APIを叩く共通ヘルパー
+    async function apiRequest(endpoint, options = {}) {
+      el.spinner.classList.remove("hidden");
+      const headers = {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...(options.headers || {})
+      };
+      
+      try {
+        const response = await fetch(endpoint, { ...options, headers });
+        if (response.status === 401) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          window.location.href = '/login';
+          return;
+        }
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.detail || `エラーが発生しました (${response.status})`);
+        }
+        return await response.json();
+      } catch (e) {
+        alert(e.message);
+        throw e;
+      } finally {
+        el.spinner.classList.add("hidden");
+      }
+    }
+
+    // 時間割をロード
+    async function loadTimetable() {
+      try {
+        timetableData = await apiRequest(`/api/classes/table?term=${encodeURIComponent(currentTerm)}`);
+        renderTimetable();
+      } catch (e) {
+        console.error("時間割ロード失敗:", e);
+      }
+    }
+
+    // 設定をロード
+    async function loadSettings() {
+      try {
+        const data = await apiRequest(`/api/settings`);
+        if (data && data.notify) {
+          el.normalFirst.value = data.notify.normal_first ?? 15;
+          el.normalSecond.value = data.notify.normal_second ?? 10;
+          el.morningTime.value = data.notify.morning_time ?? "08:00";
+        }
+      } catch (e) {
+        console.error("設定ロード失敗:", e);
+      }
+    }
+
+    // 設定を保存
+    async function saveSettings() {
+      const notify = {
+        normal_first: Number(el.normalFirst.value || 15),
+        normal_second: Number(el.normalSecond.value || 10),
+        morning_time: el.morningTime.value || "08:00"
+      };
+      try {
+        await apiRequest('/api/settings', {
+          method: 'PUT',
+          body: JSON.stringify({ notify })
+        });
+        alert("通知設定を保存しました。");
+      } catch (e) {
+        console.error("設定保存失敗:", e);
+      }
+    }
+
+    function renderTimetable() {
+      let html = "<thead><tr><th class='border p-2 bg-slate-100 font-bold text-sm'>時限</th>";
+      for (const w of weekdays) {
+        html += `<th class='border p-2 bg-slate-100 font-bold text-sm'>${w}</th>`;
+      }
+      html += "</tr></thead><tbody>";
+
+      for (const p of periods) {
+        html += `<tr><td class='border p-2 bg-slate-50 text-center font-bold text-sm'>${p}限</td>`;
+        for (const w of weekdays) {
+          const c = (timetableData[w] && timetableData[w][p]) ? timetableData[w][p] : null;
+          html += `<td class='border p-1'>
+            <button class='w-full min-h-[66px] text-left p-1.5 rounded transition duration-150 ${c ? "bg-cyan-50 hover:bg-cyan-100 border border-cyan-200" : "bg-white hover:bg-slate-50 border border-dashed border-slate-300"}' data-weekday='${w}' data-period='${p}'>
+              ${c ? `<div class='font-bold text-cyan-900 text-sm'>${escapeHtml(c.subject)}</div><div class='text-xs text-cyan-700 mt-0.5'>${escapeHtml(c.room)}</div>` : "<div class='text-xs text-slate-400 text-center font-semibold'>+ 追加</div>"}
+            </button>
+          </td>`;
+        }
+        html += "</tr>";
+      }
+      html += "</tbody>";
+      el.timetable.innerHTML = html;
+
+      el.timetable.querySelectorAll("button[data-weekday]").forEach(btn => {
+        btn.addEventListener("click", () => openClassDialog(btn.dataset.weekday, btn.dataset.period));
+      });
+    }
+
+    function openClassDialog(weekday, period) {
+      const cur = (timetableData[weekday] && timetableData[weekday][period]) ? timetableData[weekday][period] : null;
+      editing = { weekday, period, isEdit: !!cur };
+      el.classDialogTitle.textContent = cur ? "授業編集" : "授業追加";
+      el.classDialogSlot.textContent = `${weekday} ${period}限`;
+      el.dlgSubject.value = cur?.subject || "";
+      el.dlgRoom.value = cur?.room || "";
+      el.dlgDelete.style.display = cur ? "inline-block" : "none";
+      el.classDialog.showModal();
+    }
+
+    async function handleSave(e) {
+      e.preventDefault();
+      if (!editing) return;
+
+      const subject = el.dlgSubject.value.trim();
+      const room = el.dlgRoom.value.trim();
+
+      if (!subject || !room) {
+        alert("科目名と教室を入力してください。");
+        return;
+      }
+
+      try {
+        if (editing.isEdit) {
+          // 更新
+          await apiRequest(`/api/classes/${encodeURIComponent(editing.weekday)}/${editing.period}?term=${encodeURIComponent(currentTerm)}`, {
+            method: 'PUT',
+            body: JSON.stringify({ subject, room })
+          });
+        } else {
+          // 追加
+          await apiRequest(`/api/classes?term=${encodeURIComponent(currentTerm)}`, {
+            method: 'POST',
+            body: JSON.stringify({ weekday: editing.weekday, period: editing.period, subject, room })
+          });
+        }
+        el.classDialog.close();
+        await loadTimetable();
+      } catch (e) {
+        console.error("保存失敗:", e);
+      }
+    }
+
+    async function handleDelete() {
+      if (!editing || !editing.isEdit) return;
+      if (!confirm("本当にこの授業を削除しますか？")) return;
+
+      try {
+        await apiRequest(`/api/classes/${encodeURIComponent(editing.weekday)}/${editing.period}?term=${encodeURIComponent(currentTerm)}`, {
+          method: 'DELETE'
+        });
+        el.classDialog.close();
+        await loadTimetable();
+      } catch (e) {
+        console.error("削除失敗:", e);
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, "\x26amp;")
+        .replace(/</g, "\x26lt;")
+        .replace(/>/g, "\x26gt;")
+        .replace(/"/g, "\x26quot;")
+        .replace(/'/g, "\x26#039;");
+    }
+
+    // イベントリスナー登録
+    el.dlgSave.addEventListener("click", handleSave);
+    el.dlgDelete.addEventListener("click", handleDelete);
+    el.dlgClose.addEventListener("click", () => el.classDialog.close());
+    el.saveSettingsBtn.addEventListener("click", saveSettings);
+
+    el.termToggle1st.addEventListener("click", () => {
+      currentTerm = "前期";
+      el.termToggle1st.classList.add("bg-emerald-600", "text-white", "hover:bg-emerald-700");
+      el.termToggle1st.classList.remove("bg-slate-300", "text-slate-700", "hover:bg-slate-400");
+      el.termToggle2nd.classList.remove("bg-emerald-600", "text-white", "hover:bg-emerald-700");
+      el.termToggle2nd.classList.add("bg-slate-300", "text-slate-700", "hover:bg-slate-400");
+      loadTimetable();
+    });
+
+    el.termToggle2nd.addEventListener("click", () => {
+      currentTerm = "後期";
+      el.termToggle2nd.classList.add("bg-emerald-600", "text-white", "hover:bg-emerald-700");
+      el.termToggle2nd.classList.remove("bg-slate-300", "text-slate-700", "hover:bg-slate-400");
+      el.termToggle1st.classList.remove("bg-emerald-600", "text-white", "hover:bg-emerald-700");
+      el.termToggle1st.classList.add("bg-slate-300", "text-slate-700", "hover:bg-slate-400");
+      loadTimetable();
+    });
+
+    // 初期化
+    loadTimetable();
+    loadSettings();
+  </script>
+</body>
+</html>

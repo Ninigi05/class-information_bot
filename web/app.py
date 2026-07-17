@@ -134,7 +134,59 @@ async def root():
         """
 
 
-# ============ ログイン画面 ============
+# ============ ログイン画面 / コールバック ============
+
+
+@app.get("/auth/callback", response_class=HTMLResponse)
+async def auth_callback():
+    """
+    Discord OAuth2 コールバックページ
+    """
+    template_path = os.path.join(
+        os.path.dirname(__file__), "templates", "callback.html"
+    )
+    if os.path.exists(template_path):
+        with open(template_path, "r", encoding="utf-8") as f:
+            return f.read()
+    else:
+        return """
+        <html>
+            <head>
+                <title>認証中...</title>
+                <script>
+                    window.onload = async () => {
+                        const urlParams = new URLSearchParams(window.location.search);
+                        const code = urlParams.get('code');
+                        if (code) {
+                            try {
+                                const response = await fetch('/auth/login?code=' + code, {
+                                    method: 'POST'
+                                });
+                                if (response.ok) {
+                                    const data = await response.json();
+                                    localStorage.setItem('token', data.access_token);
+                                    localStorage.setItem('user', JSON.stringify(data.user));
+                                    window.location.href = '/';
+                                } else {
+                                    alert('ログインに失敗しました');
+                                    window.location.href = '/login';
+                                }
+                            } catch (e) {
+                                console.error(e);
+                                alert('ログイン中にエラーが発生しました');
+                                window.location.href = '/login';
+                            }
+                        } else {
+                            window.location.href = '/login';
+                        }
+                    };
+                </script>
+            </head>
+            <body>
+                <p>ログイン処理中、しばらくお待ちください...</p>
+            </body>
+        </html>
+        """
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -147,8 +199,13 @@ async def login_page():
     """
     template_path = os.path.join(os.path.dirname(__file__), "templates", "login.html")
     if os.path.exists(template_path):
+        from web.config import DISCORD_CLIENT_ID, DISCORD_REDIRECT_URI
+
         with open(template_path, "r", encoding="utf-8") as f:
-            return f.read()
+            content = f.read()
+            content = content.replace("{{DISCORD_CLIENT_ID}}", DISCORD_CLIENT_ID)
+            content = content.replace("{{DISCORD_REDIRECT_URI}}", DISCORD_REDIRECT_URI)
+            return content
     else:
         from web.config import DISCORD_CLIENT_ID, DISCORD_REDIRECT_URI
 

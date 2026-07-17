@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>認証中 | 授業登録 Web</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 text-slate-800 flex items-center justify-center min-h-screen">
+  <div class="max-w-md w-full bg-white rounded-2xl shadow-lg border border-slate-200 p-8 text-center space-y-4">
+    <div class="flex justify-center">
+      <div class="animate-spin rounded-full h-12 w-12 border-4 border-t-blue-600 border-r-transparent border-b-blue-600 border-l-transparent"></div>
+    </div>
+    <h1 class="text-xl font-bold text-slate-900">ログイン処理中...</h1>
+    <p class="text-sm text-slate-600">Discordでの認証情報を検証しています。しばらくお待ちください。</p>
+  </div>
+
+  <script>
+    window.onload = async () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const code = urlParams.get('code');
+      if (code) {
+        try {
+          const response = await fetch('/auth/login?code=' + code, {
+            method: 'POST'
+          });
+          if (response.ok) {
+            const data = await response.json();
+            localStorage.setItem('token', data.access_token);
+            localStorage.setItem('user', JSON.stringify(data.user));
+            window.location.href = '/';
+          } else {
+            alert('ログインに失敗しました');
+            window.location.href = '/login';
+          }
+        } catch (e) {
+          console.error(e);
+          alert('ログイン中にエラーが発生しました');
+          window.location.href = '/login';
+        }
+      } else {
+        window.location.href = '/login';
+      }
+    };
+  </script>
+</body>
+</html>
