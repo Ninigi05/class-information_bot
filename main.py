@@ -47,6 +47,7 @@ def _supports_app_command_context_features() -> bool:
     )
     return all(hasattr(app_commands, attr) for attr in required_attrs)
 
+
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
@@ -357,7 +358,7 @@ def parse_cancellation_email(mail):
     body = (mail.get("body") or "").strip()
 
     date_match = re.search(
-        r"休講日\s*[：:]\s*(?:(令和\s*(\d+)年)|(\d{4})年)?\s*(\d{1,2})月\s*(\d{1,2})日",
+        r"(?:休講日|実施日|月日)\s*[：:]\s*(?:(令和\s*(\d+)年)|(\d{4})年)?\s*(\d{1,2})月\s*(\d{1,2})日",
         body,
     )
     if not date_match:
@@ -382,6 +383,22 @@ def parse_cancellation_email(mail):
         else:
             year = now_local().year
         date_str = f"{year}-{month:02d}-{day:02d}"
+
+    # 曜日変更（授業変更日）の判定
+    # 例: 「月曜日の授業を行う」「水曜授業」「火曜日の時間割」
+    weekday_names = ["月", "火", "水", "木", "金", "土", "日"]
+    change_match = re.search(
+        r"([月火水木金土日])曜(?:日)?(?:の)?(?:授業|時間割)", body + subject_header
+    )
+    if change_match:
+        target_weekday = change_match.group(1) + "曜日"
+        return {
+            "type": "schedule_change",
+            "date": date_str,
+            "target_weekday": target_weekday,
+            "body": body,
+            "subject_header": subject_header,
+        }
 
     periods = []
     period_block = re.search(
@@ -421,6 +438,7 @@ def parse_cancellation_email(mail):
                 course_name = cleaned
 
     return {
+        "type": "cancellation",
         "date": date_str,
         "period": period_display,
         "periods": periods,
@@ -437,10 +455,12 @@ def fetch_cancellation_emails(user_id):
             logger.info(f"Gmail認証が必要です（fetchスキップ）: user {user_id}")
             return []
 
+        # 検索クエリを拡張: 休講 OR 授業変更 OR 曜日変更 OR 振替
+        query = "subject:(休講 OR 授業変更 OR 曜日変更 OR 振替) newer_than:14d"
         results = (
             service.users()
             .messages()
-            .list(userId="me", q="subject:休講 newer_than:14d", maxResults=50)
+            .list(userId="me", q=query, maxResults=50)
             .execute()
         )
         messages = results.get("messages", [])
@@ -499,6 +519,12 @@ def fetch_cancellation_emails(user_id):
             if not parsed:
                 continue
 
+            # 授業変更日の場合は、ユーザーの授業とのマッチングを行わずにリストに追加
+            if parsed.get("type") == "schedule_change":
+                matches.append(parsed)
+                continue
+
+            # 以下、休講のマッチングロジック
             try:
                 parsed_date = datetime.fromisoformat(parsed["date"]).date()
                 parsed_wd = parsed_date.weekday()
@@ -541,15 +567,7 @@ def fetch_cancellation_emails(user_id):
                         break
 
             if found:
-                matches.append(
-                    {
-                        "date": parsed["date"],
-                        "period": parsed.get("period"),
-                        "periods": parsed.get("periods") or parsed_periods,
-                        "subject": parsed_subject or raw.get("subject"),
-                        "body": parsed.get("body") or raw.get("body"),
-                    }
-                )
+                matches.append(parsed)
             else:
                 logger.info(
                     f"[DEBUG-no-match] user={user_id} 未一致: parsed_subject='{parsed_subject}' date={parsed['date']}"
@@ -899,21 +917,60 @@ async def mail_fetch(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     user_id = interaction.user.id
     try:
-        cancellations = fetch_cancellation_emails(user_id)
-        if not cancellations:
+        results = fetch_cancellation_emails(user_id)
+        if not results:
             await send_dm(
-                interaction.user, "登録授業に該当する休講情報は見つかりませんでした。"
+                interaction.user, "該当する休講・授業変更情報は見つかりませんでした。"
             )
             await interaction.followup.send("取得完了（該当なし）。", ephemeral=True)
             return
-        lines = ["最新の休講情報（表示のみ）:"]
-        for c in cancellations:
-            date_display = c.get("date") or "不明日付"
-            period_display = c.get("period") or "?"
-            subj = c.get("subject") or c.get("subject_header") or "（不明）"
-            lines.append(f"{date_display} {period_display}限 {subj}")
+
+        lines = ["最新の通知情報（表示のみ）:"]
+        for item in results:
+            date_display = item.get("date") or "不明日付"
+            if item.get("type") == "schedule_change":
+                target_wd = item.get("target_weekday")
+                lines.append(f"【授業変更】{date_display} → {target_wd} の時間割")
+            else:
+                period_display = item.get("period") or "?"
+                subj = item.get("subject") or item.get("subject_header") or "（不明）"
+                lines.append(f"【休講】{date_display} {period_display}限 {subj}")
+
         await send_long_dm(interaction.user, "\n".join(lines))
-        await interaction.followup.send("休講情報をDMで送信しました。", ephemeral=True)
+
+        # 授業変更日の自動適用（簡易実装）
+        # day_overrides は {"YYYY-MM-DD": weekday_num} の形式を想定
+        # main.py の _apply_web_payload_to_user_data の実装に合わせて調整が必要
+        user_data = load_user_data(user_id)
+        applied_count = 0
+        for item in results:
+            if item.get("type") == "schedule_change":
+                date_str = item.get("date")
+                target_wd = item.get("target_weekday")
+                if date_str and target_wd in WEEKDAY_MAP:
+                    wd_num = WEEKDAY_MAP[target_wd]
+                    # classes の各授業に overrides を設定
+                    # classes_by_term がある場合は全学期に対して適用
+                    terms = user_data.get("classes_by_term", {}).keys() or [None]
+                    for term in terms:
+                        classes = (
+                            user_data.get("classes_by_term", {}).get(term)
+                            if term
+                            else user_data.get("classes")
+                        )
+                        if classes:
+                            for cls in classes:
+                                cls.setdefault("overrides", {})[date_str] = wd_num
+                    applied_count += 1
+
+        if applied_count > 0:
+            save_user_data(user_id, user_data)
+            await send_dm(
+                interaction.user,
+                f"上記の授業変更日（{applied_count}件）を時間割に自動適用しました。",
+            )
+
+        await interaction.followup.send("通知情報をDMで送信しました。", ephemeral=True)
     except Exception as e:
         logger.exception(f"[ERROR] mail_fetch error: {e}")
         await interaction.followup.send(

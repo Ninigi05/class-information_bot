@@ -29,7 +29,9 @@ router = APIRouter(prefix="/api/classes", tags=["classes"])
 
 
 @router.get("", response_model=ListResponse)
-async def get_classes(term: str = None, current_user: TokenData = Depends(get_current_user)):
+async def get_classes(
+    term: str = None, current_user: TokenData = Depends(get_current_user)
+):
     """
     ログインユーザーの授業一覧を取得
     Returns:
@@ -97,11 +99,13 @@ async def add_class(
 
         day = WEEKDAY_MAP[class_data.weekday]
         for cls in classes:
-            if cls.get("day") == day and str(cls.get("period")) == str(class_data.period):
-        raise HTTPException(
+            if cls.get("day") == day and str(cls.get("period")) == str(
+                class_data.period
+            ):
+                raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="この曜日・時限には既に授業が登録されています",
-        )
+                )
 
         # 新しい授業を追加
         new_class = {
@@ -276,7 +280,9 @@ async def delete_class(
 
 
 @router.get("/table", response_model=dict)
-async def get_class_table(term: str = None, current_user: TokenData = Depends(get_current_user)):
+async def get_class_table(
+    term: str = None, current_user: TokenData = Depends(get_current_user)
+):
     """
     時間割テーブル形式でデータを取得（フロント用）
 
@@ -311,4 +317,3 @@ async def get_class_table(term: str = None, current_user: TokenData = Depends(ge
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="時間割の取得に失敗しました",
         )
-

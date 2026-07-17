@@ -28,7 +28,7 @@ services:
     command: tunnel run
     # ─── トークンは環境変数で安全に渡す ───
     environment:
-      - TUNNEL_TOKEN=eyJhIjoiYjFlMGE4NzZhOTczMmU0YzA0ZTBlN2VmY2QwYzQwZjgiLCJ0IjoiNjU3YjYyZDgtYTFjMy00N2UzLWJiNmItNGQxOGI2Mjg1ODQ0IiwicyI6Ik5HTmhNak01TkRRdE5qWmtZeTAwTjJFeUxUZ3pNMk10WkRZMVlqRmxNRE5sWlRkayJ9
+      - TUNNEL_TOKEN=eyJhIjoiYjFlMGE4NzZhOTczMmU0YzA0ZTBlN2VmY2QwYzQwZjgiLCJ0IjoiNjU3YjYyZDgtYTFjMy00N2UzLWJiNmItNGQxOGI2Mjg1ODQ0IiwicyI6Ik5HTmhMak01TkRRdE5qWmtZeTAwTjJFeUxUZ3pNMk10WkRZMVlqRmxNRE5sWlRkayJ9
     networks:
       - bot-network
 

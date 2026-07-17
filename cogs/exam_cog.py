@@ -5,6 +5,7 @@ import re
 from utils import (
     load_user_data,
     save_user_data,
+    get_user_data_mtime,
     send_dm,
     send_long_dm,
     get_current_term,
@@ -18,13 +19,26 @@ from datetime import datetime
 class ExamCog(commands.GroupCog, name="exam"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.user_cache = {}  # {user_id: {"mtime": 0, "data": {}}}
         super().__init__()
+
+    def get_data(self, user_id):
+        current_mtime = get_user_data_mtime(user_id)
+        if (
+            user_id not in self.user_cache
+            or self.user_cache[user_id]["mtime"] < current_mtime
+        ):
+            self.user_cache[user_id] = {
+                "mtime": current_mtime,
+                "data": load_user_data(user_id),
+            }
+        return self.user_cache[user_id]["data"]
 
     async def exam_name_autocomplete(
         self, interaction: discord.Interaction, current: str
     ):
         user_id = interaction.user.id
-        data = load_user_data(user_id)
+        data = self.get_data(user_id)
         term = get_current_term()
         schedules = data.get("exam_schedules_by_term", {}).get(term, []) or []
         choices = []
@@ -52,7 +66,7 @@ class ExamCog(commands.GroupCog, name="exam"):
         self, interaction: discord.Interaction, current: str
     ):
         user_id = interaction.user.id
-        data = load_user_data(user_id)
+        data = self.get_data(user_id)
         term = get_current_term()
         subjects = []
         for c in data.get("classes_by_term", {}).get(term, []) or []:
@@ -75,7 +89,7 @@ class ExamCog(commands.GroupCog, name="exam"):
 
     async def room_autocomplete(self, interaction: discord.Interaction, current: str):
         user_id = interaction.user.id
-        data = load_user_data(user_id)
+        data = self.get_data(user_id)
         term = get_current_term()
         rooms = []
         for c in data.get("classes_by_term", {}).get(term, []) or []:
@@ -113,7 +127,7 @@ class ExamCog(commands.GroupCog, name="exam"):
             return
 
         user_id = interaction.user.id
-        data = load_user_data(user_id)
+        data = self.get_data(user_id)
 
         if "exam_period_overrides" not in data:
             data["exam_period_overrides"] = {}
@@ -149,7 +163,7 @@ class ExamCog(commands.GroupCog, name="exam"):
             )
             return
         user_id = interaction.user.id
-        data = load_user_data(user_id)
+        data = self.get_data(user_id)
         term = get_current_term()
         data.setdefault("exam_schedules_by_term", {}).setdefault(term, [])
         for s in data["exam_schedules_by_term"][term]:
@@ -175,15 +189,19 @@ class ExamCog(commands.GroupCog, name="exam"):
     async def exam_delete(self, interaction: discord.Interaction, name: str):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
-        data = load_user_data(user_id)
+        data = self.get_data(user_id)
         term = get_current_term()
         before = len(data.get("exam_schedules_by_term", {}).get(term, []) or [])
         data.setdefault("exam_schedules_by_term", {}).setdefault(term, [])
         data["exam_schedules_by_term"][term] = [
-            s for s in data.get("exam_schedules_by_term", {}).get(term, []) if s.get("name") != name
+            s
+            for s in data.get("exam_schedules_by_term", {}).get(term, [])
+            if s.get("name") != name
         ]
         save_user_data(user_id, data)
-        removed = before - len(data.get("exam_schedules_by_term", {}).get(term, []) or [])
+        removed = before - len(
+            data.get("exam_schedules_by_term", {}).get(term, []) or []
+        )
         await send_dm(
             interaction.user, f"🗑️ 試験時間割「{name}」を削除しました（{removed}件）。"
         )
@@ -195,7 +213,7 @@ class ExamCog(commands.GroupCog, name="exam"):
     async def exam_list(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
-        data = load_user_data(user_id)
+        data = self.get_data(user_id)
         term = get_current_term()
         schedules = data.get("exam_schedules_by_term", {}).get(term, []) or []
         if not schedules:
@@ -222,7 +240,7 @@ class ExamCog(commands.GroupCog, name="exam"):
     async def exam_show(self, interaction: discord.Interaction, name: str):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
-        data = load_user_data(user_id)
+        data = self.get_data(user_id)
         term = get_current_term()
         schedules = data.get("exam_schedules_by_term", {}).get(term, []) or []
         target = next((s for s in schedules if s.get("name") == name), None)
@@ -287,7 +305,7 @@ class ExamCog(commands.GroupCog, name="exam"):
     ):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
-        data = load_user_data(user_id)
+        data = self.get_data(user_id)
         term = get_current_term()
         schedules = data.get("exam_schedules_by_term", {}).get(term, []) or []
         target = next((s for s in schedules if s.get("name") == name), None)
@@ -330,7 +348,7 @@ class ExamCog(commands.GroupCog, name="exam"):
     ):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
-        data = load_user_data(user_id)
+        data = self.get_data(user_id)
         term = get_current_term()
         schedules = data.get("exam_schedules_by_term", {}).get(term, []) or []
         target = next((s for s in schedules if s.get("name") == name), None)

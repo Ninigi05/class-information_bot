@@ -6,6 +6,7 @@ from datetime import datetime
 from utils import (
     load_user_data,
     save_user_data,
+    get_user_data_mtime,
     PERIOD_TO_TIME,
     DEFAULT_NOTIFY,
     TERM_FIRST,
@@ -17,7 +18,20 @@ from utils import (
 class SettingCog(commands.GroupCog, name="setting"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.user_cache = {}  # {user_id: {"mtime": 0, "data": {}}}
         super().__init__()
+
+    def get_data(self, user_id):
+        current_mtime = get_user_data_mtime(user_id)
+        if (
+            user_id not in self.user_cache
+            or self.user_cache[user_id]["mtime"] < current_mtime
+        ):
+            self.user_cache[user_id] = {
+                "mtime": current_mtime,
+                "data": load_user_data(user_id),
+            }
+        return self.user_cache[user_id]["data"]
 
     async def period_autocomplete(self, interaction: discord.Interaction, current: str):
         return [
@@ -53,7 +67,7 @@ class SettingCog(commands.GroupCog, name="setting"):
             return
 
         user_id = interaction.user.id
-        data = load_user_data(user_id)
+        data = self.get_data(user_id)
         data.setdefault("period_overrides", {})[period] = time
         save_user_data(user_id, data)
 
@@ -65,7 +79,7 @@ class SettingCog(commands.GroupCog, name="setting"):
     async def show_settings(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
-        data = load_user_data(user_id)
+        data = self.get_data(user_id)
 
         period_overrides = data.get("period_overrides", {}) or {}
         notify_settings = data.get("notify_settings", {}) or {}
@@ -116,7 +130,7 @@ class SettingCog(commands.GroupCog, name="setting"):
     @app_commands.autocomplete(period=reset_period_autocomplete)
     async def reset_period_time(self, interaction: discord.Interaction, period: str):
         user_id = interaction.user.id
-        data = load_user_data(user_id)
+        data = self.get_data(user_id)
         overrides = data.get("period_overrides", {}) or {}
 
         if period.lower() == "all":
@@ -156,13 +170,13 @@ class SettingCog(commands.GroupCog, name="setting"):
             datetime.strptime(date, "%Y-%m-%d")
         except ValueError:
             await interaction.response.send_message(
-                '日付は「YYYY-MM-DD」の形式で入力してください（例：2026-04-01）。',
+                "日付は「YYYY-MM-DD」の形式で入力してください（例：2026-04-01）。",
                 ephemeral=True,
             )
             return
 
         user_id = interaction.user.id
-        data = load_user_data(user_id)
+        data = self.get_data(user_id)
         data.setdefault("term_start_dates", {})[term] = date
         save_user_data(user_id, data)
 
@@ -188,7 +202,7 @@ class SettingCog(commands.GroupCog, name="setting"):
             return
 
         user_id = interaction.user.id
-        data = load_user_data(user_id)
+        data = self.get_data(user_id)
         data.setdefault("class_count_targets", {})[term] = count
 
         # Reset attendance counts when updating target
