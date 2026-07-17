@@ -28,7 +28,7 @@
             const data = await response.json();
             localStorage.setItem('token', data.access_token);
             localStorage.setItem('user', JSON.stringify(data.user));
-            window.location.href = '/';
+            window.location.href = '/dashboard';
           } else {
             alert('ログインに失敗しました');
             window.location.href = '/login';

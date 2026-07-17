@@ -109,7 +109,34 @@ async def health_check():
 @app.get("/", response_class=HTMLResponse)
 async def root():
     """
-    ルートページ（HTMLダッシュボード）
+    ルートページ（トップページ）
+
+    Returns:
+        HTMLコンテンツ
+    """
+    index_path = os.path.join(os.path.dirname(__file__), "index.html")
+    if os.path.exists(index_path):
+        with open(index_path, "r", encoding="utf-8") as f:
+            return f.read()
+    else:
+        return """
+        <html>
+            <head>
+                <title>授業情報Bot - Webダッシュボード</title>
+            </head>
+            <body>
+                <h1>授業情報Bot - Webダッシュボード</h1>
+                <p><a href="/login">ログインして始める</a></p>
+                <p><a href="/docs">API ドキュメント</a></p>
+            </body>
+        </html>
+        """
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_page():
+    """
+    マイページ（ダッシュボード）
 
     Returns:
         HTMLコンテンツ
@@ -125,10 +152,10 @@ async def root():
         <html>
             <head>
                 <title>授業情報Bot - Webダッシュボード</title>
+                <script>window.location.href = '/login';</script>
             </head>
             <body>
-                <h1>授業情報Bot - Webダッシュボード</h1>
-                <p><a href="/docs">API ドキュメント</a></p>
+                <p><a href="/login">ログインしてください</a></p>
             </body>
         </html>
         """
