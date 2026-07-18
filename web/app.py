@@ -217,6 +217,7 @@ async def auth_callback():
 
 
 @app.get("/login", response_class=HTMLResponse)
+@app.get("/login/", response_class=HTMLResponse)
 async def login_page():
     """
     ログイン画面

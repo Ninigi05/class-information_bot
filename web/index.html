@@ -22,7 +22,7 @@
         </div>
         <div class="flex flex-wrap gap-2">
           <div id="loginSection" class="flex gap-2">
-            <a href="/login" class="px-4 py-2 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700">ログイン</a>
+            <a href="login" class="px-4 py-2 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700">ログイン</a>
           </div>
           <a href="./guide.html" class="px-4 py-2 rounded-lg bg-amber-500 text-white font-bold hover:bg-amber-600">使い方ガイド</a>
           <a href="https://discord.gg/5dJpUbgB4X" target="_blank" rel="noopener" class="px-4 py-2 rounded-lg bg-sky-600 text-white font-bold hover:bg-sky-700">Discordサーバーに参加</a>
@@ -39,7 +39,7 @@
         <div>
           <h2 class="text-lg font-bold text-indigo-900">ログインしてデータを保存</h2>
           <p class="text-sm text-indigo-800 mt-1">Discord でログインすると、あなた専用のダッシュボードが利用可能になり、登録した時間割データが永続的に保存されます。デバイスを跨いで利用することも可能です。</p>
-          <a href="/login" class="inline-block mt-3 px-5 py-2.5 rounded-lg bg-indigo-600 text-white font-bold hover:bg-indigo-700">🚀 Discord でログインする</a>
+          <a href="login" class="inline-block mt-3 px-5 py-2.5 rounded-lg bg-indigo-600 text-white font-bold hover:bg-indigo-700">🚀 Discord でログインする</a>
         </div>
       </div>
     </section>
@@ -506,7 +506,7 @@
     }
 
     // Initialize draft - ensure term-aware structure exists
-    draft.classes_by_term = draft.classes_by_term || { "前期": [], "後期": [] };
+    draft.classes_by_term = draft.classes_by _term || { "前期": [], "後期": [] };
     draft.exam_schedules_by_term = draft.exam_schedules_by_term || { "前期": [], "後期": [] };
     
     renderTimetable();
