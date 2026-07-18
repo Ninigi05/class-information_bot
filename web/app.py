@@ -10,8 +10,8 @@ from fastapi.responses import HTMLResponse
 import os
 
 from web.config import ALLOWED_ORIGINS, LOG_LEVEL, BASE_DIR
-from web.auth import authenticate_user, get_current_user, TokenData
-from web.schemas import AuthResponse, UserInfo, SuccessResponse
+from web.auth import authenticate_user, get_current_user, TokenData, get_login_url
+from web.schemas import AuthResponse, UserInfo, SuccessResponse, LoginUrlResponse
 from web.api import classes, exams, makeup, settings
 
 # ロギング設定
@@ -42,10 +42,19 @@ if os.path.exists(static_dir):
 # ============ 認証エンドポイント ============
 
 
+@app.get("/auth/url", response_model=LoginUrlResponse)
+async def get_auth_url_endpoint():
+    """
+    Discord OAuth2 認証 URL と state を取得 (手順1)
+    """
+    url, state = get_login_url()
+    return LoginUrlResponse(url=url, state=state)
+
+
 @app.post("/auth/login", response_model=AuthResponse)
 async def login(code: str):
     """
-    Discord OAuth2 コードを使用してログイン
+    Discord OAuth2 コードを使用してログイン (手順3, 4, 5)
 
     Args:
         code: Discord から返された認可コード
@@ -54,6 +63,7 @@ async def login(code: str):
         認証情報（トークン、ユーザー情報）
     """
     try:
+        # 手順 3, 4, 5 は authenticate_user 内で実行
         auth_response = await authenticate_user(code)
         logger.info(
             f"ユーザーがログインしました: {auth_response.user.user_id} ({auth_response.user.username})"
@@ -167,7 +177,7 @@ async def dashboard_page():
 @app.get("/auth/callback", response_class=HTMLResponse)
 async def auth_callback():
     """
-    Discord OAuth2 コールバックページ
+    Discord OAuth2 コールバックページ (手順2)
     """
     template_path = os.path.join(
         os.path.dirname(__file__), "templates", "callback.html"
@@ -176,44 +186,8 @@ async def auth_callback():
         with open(template_path, "r", encoding="utf-8") as f:
             return f.read()
     else:
-        return """
-        <html>
-            <head>
-                <title>認証中...</title>
-                <script>
-                    window.onload = async () => {
-                        const urlParams = new URLSearchParams(window.location.search);
-                        const code = urlParams.get('code');
-                        if (code) {
-                            try {
-                                const response = await fetch('/auth/login?code=' + code, {
-                                    method: 'POST'
-                                });
-                                if (response.ok) {
-                                    const data = await response.json();
-                                    localStorage.setItem('token', data.access_token);
-                                    localStorage.setItem('user', JSON.stringify(data.user));
-                                    window.location.href = '/';
-                                } else {
-                                    alert('ログインに失敗しました');
-                                    window.location.href = '/login';
-                                }
-                            } catch (e) {
-                                console.error(e);
-                                alert('ログイン中にエラーが発生しました');
-                                window.location.href = '/login';
-                            }
-                        } else {
-                            window.location.href = '/login';
-                        }
-                    };
-                </script>
-            </head>
-            <body>
-                <p>ログイン処理中、しばらくお待ちください...</p>
-            </body>
-        </html>
-        """
+        # フォールバック (基本的には callback.html が存在する前提)
+        return "Callback template not found"
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -221,33 +195,16 @@ async def auth_callback():
 async def login_page():
     """
     ログイン画面
-
-    Returns:
-        HTMLコンテンツ
     """
     template_path = os.path.join(os.path.dirname(__file__), "templates", "login.html")
     if os.path.exists(template_path):
-        from web.config import DISCORD_CLIENT_ID, DISCORD_REDIRECT_URI
-
         with open(template_path, "r", encoding="utf-8") as f:
-            content = f.read()
-            content = content.replace("{{DISCORD_CLIENT_ID}}", DISCORD_CLIENT_ID)
-            content = content.replace("{{DISCORD_REDIRECT_URI}}", DISCORD_REDIRECT_URI)
-            return content
+            return f.read()
     else:
-        from web.config import DISCORD_CLIENT_ID, DISCORD_REDIRECT_URI
-
-        return f"""
+        return """
         <html>
-            <head>
-                <title>ログイン</title>
-            </head>
-            <body>
-                <h1>Discord でログイン</h1>
-                <a href="https://discord.com/api/oauth2/authorize?client_id={DISCORD_CLIENT_ID}&redirect_uri={DISCORD_REDIRECT_URI}&response_type=code&scope=identify">
-                    Discord ログイン
-                </a>
-            </body>
+            <head><title>Login</title></head>
+            <body><a href="/auth/url">Login with Discord</a></body>
         </html>
         """
 

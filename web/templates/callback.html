@@ -19,18 +19,33 @@
     window.onload = async () => {
       const urlParams = new URLSearchParams(window.location.search);
       const code = urlParams.get('code');
+      const state = urlParams.get('state');
+      
+      // CSRF対策: stateの検証 (手順2)
+      const savedState = localStorage.getItem('oauth_state');
+      localStorage.removeItem('oauth_state'); // 使用後は削除
+      
+      if (!state || state !== savedState) {
+        alert('不正なリクエストです (CSRF保護)');
+        window.location.href = '/login';
+        return;
+      }
+
       if (code) {
         try {
+          // 手順 3, 4, 5 をバックエンドに依頼
           const response = await fetch('/auth/login?code=' + code, {
             method: 'POST'
           });
           if (response.ok) {
             const data = await response.json();
+            // ステップ 5: セッションの確立
             localStorage.setItem('token', data.access_token);
             localStorage.setItem('user', JSON.stringify(data.user));
             window.location.href = '/dashboard';
           } else {
-            alert('ログインに失敗しました');
+            const error = await response.json();
+            alert('ログインに失敗しました: ' + (error.detail || 'Unknown error'));
             window.location.href = '/login';
           }
         } catch (e) {

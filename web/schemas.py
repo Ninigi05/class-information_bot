@@ -231,6 +231,13 @@ class AuthResponse(BaseModel):
     user: UserInfo = Field(..., description="ユーザー情報")
 
 
+class LoginUrlResponse(BaseModel):
+    """ログインURLレスポンス"""
+
+    url: str = Field(..., description="Discord OAuth2 認証 URL")
+    state: str = Field(..., description="CSRF対策用 state パラメータ")
+
+
 # ============ 一般レスポンス ============
 
 
