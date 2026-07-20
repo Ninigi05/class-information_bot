@@ -13,19 +13,41 @@
     </div>
     <h1 class="text-xl font-bold text-slate-900">ログイン処理中...</h1>
     <p class="text-sm text-slate-600">Discordでの認証情報を検証しています。しばらくお待ちください。</p>
+    <div id="debug-info" class="mt-4 p-2 bg-slate-800 text-green-400 text-xs font-mono rounded overflow-auto max-h-48 text-left"></div>
   </div>
 
   <script>
+    function log(msg) {
+      console.log('[Callback Log]', msg);
+      const debugEl = document.getElementById('debug-info');
+      debugEl.innerHTML += `<div>${new Date().toLocaleTimeString()}: ${msg}</div>`;
+    }
+
     window.onload = async () => {
+      log('コールバックページが読み込まれました');
       const urlParams = new URLSearchParams(window.location.search);
       const code = urlParams.get('code');
       const state = urlParams.get('state');
+      const error = urlParams.get('error');
+      const errorDescription = urlParams.get('error_description');
+
+      if (error) {
+        log(`Discordからエラーが返されました: ${error} (${errorDescription})`);
+        alert(`認証エラー: ${errorDescription || error}`);
+        window.location.href = '/login';
+        return;
+      }
+
+      log(`取得したcode: ${code ? 'あり' : 'なし'}`);
+      log(`取得したstate: ${state}`);
       
       // CSRF対策: stateの検証 (手順2)
       const savedState = localStorage.getItem('oauth_state');
+      log(`保存されていたstate: ${savedState}`);
       localStorage.removeItem('oauth_state'); // 使用後は削除
       
       if (!state || state !== savedState) {
+        log('stateが一致しません。CSRF攻撃の可能性があります。');
         alert('不正なリクエストです (CSRF保護)');
         window.location.href = '/login';
         return;
@@ -33,27 +55,35 @@
 
       if (code) {
         try {
+          log('/auth/login へリクエスト送信中...');
           // 手順 3, 4, 5 をバックエンドに依頼
           const response = await fetch('/auth/login?code=' + code, {
             method: 'POST'
           });
+          log(`レスポンスステータス: ${response.status}`);
+
           if (response.ok) {
             const data = await response.json();
+            log('ログイン成功！トークンを保存します。');
             // ステップ 5: セッションの確立
             localStorage.setItem('token', data.access_token);
             localStorage.setItem('user', JSON.stringify(data.user));
+            log('ダッシュボードへリダイレクトします...');
             window.location.href = '/dashboard';
           } else {
-            const error = await response.json();
-            alert('ログインに失敗しました: ' + (error.detail || 'Unknown error'));
+            const errorData = await response.json();
+            log(`ログイン失敗: ${JSON.stringify(errorData)}`);
+            alert('ログインに失敗しました: ' + (errorData.detail || 'Unknown error'));
             window.location.href = '/login';
           }
         } catch (e) {
+          log(`エラー発生: ${e.message}`);
           console.error(e);
           alert('ログイン中にエラーが発生しました');
           window.location.href = '/login';
         }
       } else {
+        log('codeが見つかりません。ログインページに戻ります。');
         window.location.href = '/login';
       }
     };
