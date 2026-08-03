@@ -506,7 +506,7 @@
     }
 
     // Initialize draft - ensure term-aware structure exists
-    draft.classes_by_term = draft.classes_by _term || { "前期": [], "後期": [] };
+    draft.classes_by_term = draft.classes_by_term || { "前期": [], "後期": [] };
     draft.exam_schedules_by_term = draft.exam_schedules_by_term || { "前期": [], "後期": [] };
     
     renderTimetable();
