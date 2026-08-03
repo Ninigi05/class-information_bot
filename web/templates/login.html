@@ -70,8 +70,8 @@
           loginBtn.disabled = true;
           loginBtn.classList.add('opacity-50', 'cursor-not-allowed');
           
-          log('/auth/url へフェッチ中...');
-          const response = await fetch('/auth/url');
+          log('/api/auth/url へフェッチ中...');
+          const response = await fetch('/api/auth/url');
           log(`レスポンスステータス: ${response.status}`);
           
           if (!response.ok) {

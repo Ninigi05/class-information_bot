@@ -30,6 +30,14 @@ from utils import (
 from api_security import verify_api_key
 from web_link_service import create_link_key
 
+# Discord OAuth2 関連のインポート
+try:
+    from web.auth import authenticate_user, get_current_user, TokenData, get_login_url
+    from web.schemas import AuthResponse, UserInfo, SuccessResponse, LoginUrlResponse
+    HAS_AUTH = True
+except ImportError:
+    HAS_AUTH = False
+
 logger = logging.getLogger(__name__)
 
 # FastAPI アプリケーションの初期化
@@ -42,6 +50,49 @@ web_app = FastAPI(
 # 静的ファイル配信
 web_app.mount("/static", StaticFiles(directory="web"), name="static")
 
+# ============ 認証エンドポイント ============
+
+if HAS_AUTH:
+    @web_app.get("/auth/url", response_model=LoginUrlResponse)
+    async def get_auth_url_endpoint():
+        """
+        Discord OAuth2 認証 URL と state を取得 (手順1)
+        """
+        url, state = get_login_url()
+        return LoginUrlResponse(url=url, state=state)
+
+
+    @web_app.post("/auth/login", response_model=AuthResponse)
+    async def login(code: str):
+        """
+        Discord OAuth2 コードを使用してログイン (手順3, 4, 5)
+        """
+        try:
+            auth_response = await authenticate_user(code)
+            logger.info(
+                f"ユーザーがログインしました: {auth_response.user.user_id} ({auth_response.user.username})"
+            )
+            return auth_response
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.exception(f"ログインエラー: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="ログインに失敗しました",
+            )
+
+
+    @web_app.get("/auth/me", response_model=UserInfo)
+    async def get_current_user_info(current_user: TokenData = Depends(get_current_user)):
+        """
+        現在ログインしているユーザーの情報を取得
+        """
+        return UserInfo(
+            user_id=current_user.user_id,
+            username=current_user.username,
+            avatar=None,
+        )
 
 # ============ CORS 設定 ============
 # GitHub Pages など複数のドメインから利用可能に
