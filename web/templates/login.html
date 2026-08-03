@@ -82,7 +82,10 @@
           loginBtn.classList.add('opacity-50', 'cursor-not-allowed');
           
           log('/api/auth/url へフェッチ中...');
-          const response = await fetch('/api/auth/url');
+          // 絶対パスを試行
+          const url = window.location.origin + '/api/auth/url';
+          log(`Fetch URL: ${url}`);
+          const response = await fetch(url);
           log(`レスポンスステータス: ${response.status}`);
           
           if (!response.ok) {
