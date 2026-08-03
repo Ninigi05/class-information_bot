@@ -46,8 +46,19 @@
       debugEl.innerHTML += `<div>${new Date().toLocaleTimeString()}: ${msg}</div>`;
     }
 
+    // グローバルなエラーハンドリング
+    window.onerror = function(msg, url, lineNo, columnNo, error) {
+      log(`[Global Error] ${msg} at ${lineNo}:${columnNo}`);
+      return false;
+    };
+
+    window.addEventListener('unhandledrejection', function(event) {
+      log(`[Unhandled Promise Rejection] ${event.reason}`);
+    });
+
     window.addEventListener('DOMContentLoaded', () => {
       log('DOMコンテンツが読み込まれました');
+      log(`Current Origin: ${window.location.origin}`);
       
       const token = localStorage.getItem('token');
       if (token) {

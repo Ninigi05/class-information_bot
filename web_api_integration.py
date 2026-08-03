@@ -53,20 +53,27 @@ web_app.mount("/static", StaticFiles(directory="web"), name="static")
 # ============ 認証エンドポイント ============
 
 if HAS_AUTH:
-    @web_app.get("/auth/url", response_model=LoginUrlResponse)
+    @web_app.get("/api/auth/url", response_model=LoginUrlResponse)
     async def get_auth_url_endpoint():
         """
         Discord OAuth2 認証 URL と state を取得 (手順1)
         """
-        url, state = get_login_url()
-        return LoginUrlResponse(url=url, state=state)
+        logger.info("認証URLのリクエストを受信しました")
+        try:
+            url, state = get_login_url()
+            logger.info(f"認証URLを生成しました: {url} (state: {state})")
+            return LoginUrlResponse(url=url, state=state)
+        except Exception as e:
+            logger.exception(f"認証URL生成エラー: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
 
 
-    @web_app.post("/auth/login", response_model=AuthResponse)
+    @web_app.post("/api/auth/login", response_model=AuthResponse)
     async def login(code: str):
         """
         Discord OAuth2 コードを使用してログイン (手順3, 4, 5)
         """
+        logger.info(f"ログインリクエストを受信しました: code={code[:5]}***")
         try:
             auth_response = await authenticate_user(code)
             logger.info(
@@ -83,11 +90,12 @@ if HAS_AUTH:
             )
 
 
-    @web_app.get("/auth/me", response_model=UserInfo)
+    @web_app.get("/api/auth/me", response_model=UserInfo)
     async def get_current_user_info(current_user: TokenData = Depends(get_current_user)):
         """
         現在ログインしているユーザーの情報を取得
         """
+        logger.info(f"ユーザー情報リクエスト: user_id={current_user.user_id}")
         return UserInfo(
             user_id=current_user.user_id,
             username=current_user.username,
