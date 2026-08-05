@@ -10,8 +10,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Tuple
 from jose import JWTError, jwt
 from fastapi import HTTPException, status, Depends
-from fastapi.security import HTTPBearer
-from fastapi.security.http import HTTPAuthCredentials
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
 from web.config import (
@@ -180,7 +179,7 @@ def verify_token(token: str) -> TokenData:
     return TokenData(user_id=user_id, username=username, exp=datetime.utcnow())
 
 
-async def get_current_user(credentials: HTTPAuthCredentials = Depends(security)) -> TokenData:
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> TokenData:
     """
     現在のユーザー情報を取得（依存関数）
     
