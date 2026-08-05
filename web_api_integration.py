@@ -30,6 +30,8 @@ from utils import (
 from api_security import verify_api_key
 from web_link_service import create_link_key
 
+logger = logging.getLogger(__name__)
+
 # Discord OAuth2 関連のインポート
 try:
     from web.auth import authenticate_user, get_current_user, TokenData, get_login_url
@@ -40,8 +42,6 @@ except Exception as e:
     logger.error(f"[Web Init] OAuth機能インポート失敗。理由: {e}")
     logger.error(traceback.format_exc())
     HAS_AUTH = False
-
-logger = logging.getLogger(__name__)
 
 # FastAPI アプリケーションの初期化
 web_app = FastAPI(

@@ -10,7 +10,8 @@ from datetime import datetime, timedelta
 from typing import Optional, Tuple
 from jose import JWTError, jwt
 from fastapi import HTTPException, status, Depends
-from fastapi.security import HTTPBearer, HTTPAuthCredentials
+from fastapi.security import HTTPBearer
+from fastapi.security.http import HTTPAuthCredentials
 from pydantic import BaseModel
 
 from web.config import (
