@@ -5,6 +5,9 @@ services:
       dockerfile: Dockerfile
     container_name: class-information-bot
     restart: unless-stopped
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     env_file:
       - .env
     environment:
@@ -26,7 +29,6 @@ services:
     restart: unless-stopped
     # ─── command を短くシンプルに変更 ───
     command: tunnel run
-    # ─── トークンは環境変数で安全に渡す ───
     environment:
       - TUNNEL_TOKEN=eyJhIjoiYjFlMGE4NzZhOTczMmU0YzA0ZTBlN2VmY2QwYzQwZjgiLCJ0IjoiNjU3YjYyZDgtYTFjMy00N2UzLWJiNmItNGQxOGI2Mjg1ODQ0IiwicyI6Ik5HTmhMak01TkRRdE5qWmtZeTAwTjJFeUxUZ3pNMk10WkRZMVlqRmxNRE5sWlRkayJ9
       - TUNNEL_TRANSPORT_PROTOCOL=http2

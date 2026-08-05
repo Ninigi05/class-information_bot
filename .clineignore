@@ -1,0 +1,20 @@
+# 仮想環境・キャッシュ（巨大なため必須）
+.venv/
+.mypy_cache/
+__pycache__/
+logs/
+
+# 認証情報・環境変数（セキュリティおよび不要なコンテキスト削減）
+.env
+client_secret_*.json
+gmail_tokens/
+user_*.json
+
+# 圧縮ファイル・画像（トークンを無駄に消費するため）
+*.zip
+*.png
+
+# 設定・ドキュメント（必要に応じて）
+.vscode/
+docs/
+*.md
