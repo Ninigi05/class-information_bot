@@ -29,8 +29,11 @@ services:
     restart: unless-stopped
     # ─── command を短くシンプルに変更 ───
     command: tunnel run
+    # .env ファイルを直接マウントするか環境変数を受け取る
+    env_file:
+      - .env
     environment:
-      - TUNNEL_TOKEN=eyJhIjoiYjFlMGE4NzZhOTczMmU0YzA0ZTBlN2VmY2QwYzQwZjgiLCJ0IjoiNjU3YjYyZDgtYTFjMy00N2UzLWJiNmItNGQxOGI2Mjg1ODQ0IiwicyI6Ik5HTmhMak01TkRRdE5qWmtZeTAwTjJFeUxUZ3pNMk10WkRZMVlqRmxNRE5sWlRkayJ9
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
       - TUNNEL_TRANSPORT_PROTOCOL=http2
     networks:
       - bot-network
