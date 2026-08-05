@@ -58,13 +58,13 @@ if HAS_AUTH:
         """
         Discord OAuth2 認証 URL と state を取得 (手順1)
         """
-        logger.info("認証URLのリクエストを受信しました")
+        logger.info("[Web Auth] 認証URLのリクエストを受信しました")
         try:
             url, state = get_login_url()
-            logger.info(f"認証URLを生成しました: {url} (state: {state})")
+            logger.info(f"[Web Auth] 認証URLを生成しました: {url} (state: {state})")
             return LoginUrlResponse(url=url, state=state)
         except Exception as e:
-            logger.exception(f"認証URL生成エラー: {e}")
+            logger.exception(f"[Web Auth] 認証URL生成エラー: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -73,17 +73,18 @@ if HAS_AUTH:
         """
         Discord OAuth2 コードを使用してログイン (手順3, 4, 5)
         """
-        logger.info(f"ログインリクエストを受信しました: code={code[:5]}***")
+        logger.info(f"[Web Auth] ログインリクエストを受信しました: code={code[:5]}***")
         try:
             auth_response = await authenticate_user(code)
             logger.info(
-                f"ユーザーがログインしました: {auth_response.user.user_id} ({auth_response.user.username})"
+                f"[Web Auth] ユーザーがログインしました: {auth_response.user.user_id} ({auth_response.user.username})"
             )
             return auth_response
-        except HTTPException:
+        except HTTPException as he:
+            logger.warning(f"[Web Auth] ログイン失敗（HTTPException）: {he.status_code} - {he.detail}")
             raise
         except Exception as e:
-            logger.exception(f"ログインエラー: {e}")
+            logger.exception(f"[Web Auth] ログインエラー: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="ログインに失敗しました",
@@ -704,21 +705,44 @@ async def general_exception_handler(request, exc):
 
 @web_app.get("/{rest_of_path:path}")
 async def catch_all(rest_of_path: str):
+    logger.info(f"[Web Request] catch_all受信: {rest_of_path}")
     if rest_of_path.startswith("api/"):
+        logger.warning(f"[Web Request] APIエンドポイントが見つかりません: {rest_of_path}")
         raise HTTPException(status_code=404, detail="Not Found")
 
     # ルートアクセスを正しく処理
     if not rest_of_path or rest_of_path == ".":
+        logger.info("[Web Request] トップページ（index.html）を配信します")
         return FileResponse("web/index.html")
 
+    # 特定の画面遷移ルートの処理
+    clean_path = rest_of_path.strip("/")
+    if clean_path in ["login", "login/"]:
+        template_path = "web/templates/login.html"
+        if os.path.exists(template_path):
+            logger.info(f"[Web Request] ログインページを配信します: {template_path}")
+            return FileResponse(template_path)
+    elif clean_path == "dashboard":
+        template_path = "web/templates/dashboard.html"
+        if os.path.exists(template_path):
+            logger.info(f"[Web Request] ダッシュボードページを配信します: {template_path}")
+            return FileResponse(template_path)
+    elif clean_path == "auth/callback":
+        template_path = "web/templates/callback.html"
+        if os.path.exists(template_path):
+            logger.info(f"[Web Request] コールバックページを配信します: {template_path}")
+            return FileResponse(template_path)
+
     # 相対パスの "./" を除去して正規化
-    clean_path = rest_of_path.lstrip("./")
-    file_path = os.path.join("web", clean_path)
+    clean_file_path = rest_of_path.lstrip("./")
+    file_path = os.path.join("web", clean_file_path)
 
     # 物理ファイルが存在すれば返す
     if os.path.exists(file_path) and os.path.isfile(file_path):
+        logger.info(f"[Web Request] 物理ファイルを配信します: {file_path}")
         return FileResponse(file_path)
 
+    logger.info(f"[Web Request] マッチするファイルがないため、index.html にフォールバックします (path={rest_of_path})")
     return FileResponse("web/index.html")
 
 
