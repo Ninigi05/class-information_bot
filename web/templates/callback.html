@@ -55,9 +55,9 @@
 
       if (code) {
         try {
-          log('/auth/login へリクエスト送信中...');
+          log('/api/auth/login へリクエスト送信中...');
           // 手順 3, 4, 5 をバックエンドに依頼
-          const response = await fetch('/auth/login?code=' + code, {
+          const response = await fetch('/api/auth/login?code=' + code, {
             method: 'POST'
           });
           log(`レスポンスステータス: ${response.status}`);

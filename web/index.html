@@ -496,13 +496,10 @@
 
     wireEnterFlow([el.dlgSubject, el.dlgRoom], () => el.dlgSave.click());
 
-    // ログイン状態チェック
+    // ログイン状態チェック。ログイン済みなら自動的にマイページ（ダッシュボード）へリダイレクト
     const token = localStorage.getItem('token');
     if (token) {
-      document.getElementById('loginSection').innerHTML = `
-        <a href="/dashboard" class="px-4 py-2 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700">マイページ（ダッシュボード）へ</a>
-      `;
-      document.getElementById('loginPromo').classList.add('hidden');
+      window.location.href = '/dashboard';
     }
 
     // Initialize draft - ensure term-aware structure exists
