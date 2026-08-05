@@ -35,7 +35,10 @@ try:
     from web.auth import authenticate_user, get_current_user, TokenData, get_login_url
     from web.schemas import AuthResponse, UserInfo, SuccessResponse, LoginUrlResponse
     HAS_AUTH = True
-except ImportError:
+except Exception as e:
+    import traceback
+    logger.error(f"[Web Init] OAuth機能インポート失敗。理由: {e}")
+    logger.error(traceback.format_exc())
     HAS_AUTH = False
 
 logger = logging.getLogger(__name__)
