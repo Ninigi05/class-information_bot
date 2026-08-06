@@ -26,6 +26,7 @@
             <button type="button" id="logoutBtn" class="px-2.5 py-1 rounded bg-rose-100 text-rose-700 hover:bg-rose-200 font-bold text-xs transition duration-150">ログアウト</button>
           </div>
           <div class="flex flex-wrap gap-2">
+            <a href="/exam.html" class="px-4 py-2 rounded-lg bg-indigo-600 text-white font-bold hover:bg-indigo-700 text-sm">試験時間割ページへ</a>
             <a href="https://discord.gg/5dJpUbgB4X" target="_blank" rel="noopener" class="px-4 py-2 rounded-lg bg-sky-600 text-white font-bold hover:bg-sky-700 text-sm">Discordサーバー</a>
             <a href="./privacy.html" class="px-4 py-2 rounded-lg bg-slate-700 text-white font-bold hover:bg-slate-800 text-sm">プライバシーポリシー</a>
             <a href="./terms.html" class="px-4 py-2 rounded-lg bg-slate-700 text-white font-bold hover:bg-slate-800 text-sm">利用規約</a>
@@ -66,6 +67,52 @@
       <div class="flex justify-end">
         <button id="saveSettingsBtn" type="button" class="px-5 py-2 rounded bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-sm">設定を保存</button>
       </div>
+    </section>
+
+    <!-- 時間割の上書き設定 -->
+    <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7 space-y-4">
+      <h2 class="text-lg font-bold">🕒 時間割の上書き設定</h2>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+        <label class="block"><span class="text-sm font-semibold">曜日変更 日付</span><input id="ovDayDate" type="date" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border" /></label>
+        <label class="block"><span class="text-sm font-semibold">変更先曜日</span><select id="ovDayWeekday" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border"></select></label>
+        <button type="button" id="addDayOverride" class="px-4 py-2 rounded bg-cyan-600 text-white font-bold hover:bg-cyan-700 h-10">曜日上書き追加</button>
+      </div>
+      <div id="dayOverrideList" class="text-sm text-slate-700 mt-2"></div>
+
+      <hr class="my-4 border-slate-200" />
+
+      <div class="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+        <label class="block"><span class="text-sm font-semibold">教室変更 日付</span><input id="ovRoomDate" type="date" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border" /></label>
+        <label class="block"><span class="text-sm font-semibold">時限</span><select id="ovRoomPeriod" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border"></select></label>
+        <label class="block"><span class="text-sm font-semibold">新しい教室</span><input id="ovRoomValue" type="text" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border" /></label>
+        <button type="button" id="addRoomOverride" class="px-4 py-2 rounded bg-cyan-600 text-white font-bold hover:bg-cyan-700 h-10">教室上書き追加</button>
+      </div>
+      <div id="roomOverrideList" class="text-sm text-slate-700 mt-2"></div>
+    </section>
+
+    <!-- Gmail休講認証（Web） -->
+    <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7 space-y-4">
+      <h2 class="text-lg font-bold">✉️ Gmail休講認証（Web）</h2>
+      <div class="flex flex-wrap gap-2">
+        <button type="button" id="openGmailAuth" class="px-4 py-2 rounded bg-amber-600 text-white font-bold hover:bg-amber-700">認証URLを取得</button>
+        <a id="gmailAuthUrl" href="#" target="_blank" rel="noopener" class="hidden px-4 py-2 rounded bg-amber-100 text-amber-900 font-semibold border border-amber-300">Gmail認証ページを開く</a>
+      </div>
+      <label class="block"><span class="text-sm font-semibold">取得した認証コード（code）</span><input id="gmailAuthCode" type="text" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border placeholder-slate-400" placeholder="4/0Ab..." /></label>
+    </section>
+
+    <!-- 連携キー発行（機能別） -->
+    <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7 space-y-3">
+      <h2 class="text-lg font-bold">🔑 連携キー発行（機能別）</h2>
+      <p class="text-xs text-slate-500 mb-2">Webで登録した通常時間割、通知、上書き、Gmail設定などをDiscord Bot側へ直接連携するための1回限り有効なキーを発行します。</p>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        <button type="button" id="issueKeyAll" class="px-4 py-2.5 rounded-lg bg-emerald-600 text-white font-extrabold hover:bg-emerald-700 text-sm">全体キーを発行</button>
+        <button type="button" id="issueKeyClasses" class="px-4 py-2.5 rounded-lg bg-cyan-600 text-white font-extrabold hover:bg-cyan-700 text-sm">通常時間割キー</button>
+        <button type="button" id="issueKeyNotify" class="px-4 py-2.5 rounded-lg bg-cyan-600 text-white font-extrabold hover:bg-cyan-700 text-sm">通知設定キー</button>
+        <button type="button" id="issueKeyOverrides" class="px-4 py-2.5 rounded-lg bg-cyan-600 text-white font-extrabold hover:bg-cyan-700 text-sm">上書き設定キー</button>
+        <button type="button" id="issueKeyGmail" class="px-4 py-2.5 rounded-lg bg-amber-600 text-white font-extrabold hover:bg-amber-700 text-sm">Gmail認証キー</button>
+        <button type="button" id="issueKeyExam" class="px-4 py-2.5 rounded-lg bg-indigo-600 text-white font-extrabold hover:bg-indigo-700 text-sm">試験設定キー</button>
+      </div>
+      <div id="result" class="hidden rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-sm mt-3"></div>
     </section>
   </main>
 
@@ -125,10 +172,71 @@
       dlgSave: document.getElementById("dlgSave"),
       dlgDelete: document.getElementById("dlgDelete"),
       dlgClose: document.getElementById("dlgClose"),
-      spinner: document.getElementById("loading-spinner")
+      spinner: document.getElementById("loading-spinner"),
+      ovDayDate: document.getElementById("ovDayDate"),
+      ovDayWeekday: document.getElementById("ovDayWeekday"),
+      addDayOverride: document.getElementById("addDayOverride"),
+      dayOverrideList: document.getElementById("dayOverrideList"),
+      ovRoomDate: document.getElementById("ovRoomDate"),
+      ovRoomPeriod: document.getElementById("ovRoomPeriod"),
+      ovRoomValue: document.getElementById("ovRoomValue"),
+      addRoomOverride: document.getElementById("addRoomOverride"),
+      roomOverrideList: document.getElementById("roomOverrideList"),
+      openGmailAuth: document.getElementById("openGmailAuth"),
+      gmailAuthUrl: document.getElementById("gmailAuthUrl"),
+      gmailAuthCode: document.getElementById("gmailAuthCode"),
+      issueKeyAll: document.getElementById("issueKeyAll"),
+      issueKeyClasses: document.getElementById("issueKeyClasses"),
+      issueKeyNotify: document.getElementById("issueKeyNotify"),
+      issueKeyOverrides: document.getElementById("issueKeyOverrides"),
+      issueKeyGmail: document.getElementById("issueKeyGmail"),
+      issueKeyExam: document.getElementById("issueKeyExam"),
+      result: document.getElementById("result")
     };
 
+    const STORAGE_KEY = "web_reg_draft_v2";
+    const draft = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null") || {
+      classes_by_term: { "前期": [], "後期": [] },
+      notify: { normal_first: 15, normal_second: 10, exam_first: 30, exam_second: 25, morning_time: "08:00" },
+      period_overrides: {},
+      day_overrides: [],
+      room_overrides: [],
+      exam_schedules_by_term: { "前期": [], "後期": [] },
+      exam_period_overrides: {},
+      gmail_auth_code: "",
+    };
+
+    // Migration for old single-term structure
+    if (Array.isArray(draft.classes)) {
+      draft.classes_by_term = { "前期": draft.classes, "後期": [] };
+      delete draft.classes;
+    }
+    if (Array.isArray(draft.exam_schedules)) {
+      draft.exam_schedules_by_term = { "前期": draft.exam_schedules, "後期": [] };
+      delete draft.exam_schedules;
+    }
+
     let editing = null;
+
+    function persist() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
+    }
+
+    function wireEnterFlow(elements, onLast) {
+      elements.forEach((elRef, idx) => {
+        elRef.addEventListener("keydown", (e) => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          const next = elements[idx + 1];
+          if (next) {
+            next.focus();
+            if (typeof next.select === "function") next.select();
+            return;
+          }
+          onLast();
+        });
+      });
+    }
 
     // APIを叩く共通ヘルパー
     async function apiRequest(endpoint, options = {}) {
@@ -321,9 +429,216 @@
       loadTimetable();
     });
 
+    function renderOverrideLists() {
+      el.dayOverrideList.innerHTML = draft.day_overrides.length
+        ? draft.day_overrides.map((x, i) => `<div class='py-1'>${x.date} → ${x.weekday} <button class='text-rose-700 underline' data-day-rm='${i}'>削除</button></div>`).join("")
+        : "<div class='text-slate-400'>未設定</div>";
+      el.roomOverrideList.innerHTML = draft.room_overrides.length
+        ? draft.room_overrides.map((x, i) => `<div class='py-1'>${x.date} ${x.period}限 → ${escapeHtml(x.room)} <button class='text-rose-700 underline' data-room-rm='${i}'>削除</button></div>`).join("")
+        : "<div class='text-slate-400'>未設定</div>";
+
+      el.dayOverrideList.querySelectorAll("button[data-day-rm]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          draft.day_overrides.splice(Number(btn.dataset.dayRm), 1);
+          persist();
+          renderOverrideLists();
+        });
+      });
+      el.roomOverrideList.querySelectorAll("button[data-room-rm]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          draft.room_overrides.splice(Number(btn.dataset.roomRm), 1);
+          persist();
+          renderOverrideLists();
+        });
+      });
+    }
+
+    async function fetchGmailAuthUrl() {
+      let res;
+      try {
+        res = await fetch(`${window.location.origin}/api/public/gmail-auth-url`);
+      } catch (e) {
+        throw new Error(`バックエンドに接続できません: ${window.location.origin}`);
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || "Gmail認証URLの取得に失敗しました");
+      }
+      return res.json();
+    }
+
+    // timetableData（曜日時限マップ）をフラットな classes 配列に変換
+    function getClassesFromTimetable() {
+      const list = [];
+      for (const w of weekdays) {
+        if (timetableData[w]) {
+          for (const p of periods) {
+            const c = timetableData[w][p];
+            if (c) {
+              list.push({
+                weekday: w,
+                period: String(p),
+                subject: c.subject,
+                room: c.room
+              });
+            }
+          }
+        }
+      }
+      return list;
+    }
+
+    async function issueLinkKey(feature) {
+      // 連携キー発行時に、最新の授業情報、通知設定、Gmailコードを統合する
+      const classesForTerm = getClassesFromTimetable();
+      
+      const data = {
+        ...draft,
+        classes_by_term: {
+          ...draft.classes_by_term,
+          [currentTerm]: classesForTerm
+        },
+        notify: {
+          ...draft.notify,
+          normal_first: Number(el.normalFirst.value || 15),
+          normal_second: Number(el.normalSecond.value || 10),
+          morning_time: el.morningTime.value || "08:00",
+        },
+        gmail_auth_code: (el.gmailAuthCode.value || "").trim(),
+      };
+
+      const body = {
+        feature: feature || "all",
+        data,
+        _meta: { term: currentTerm },
+      };
+
+      let res;
+      try {
+        res = await fetch(`${window.location.origin}/api/public/issue-link-key`, {
+          method: "POST",
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
+          body: JSON.stringify(body),
+        });
+      } catch (e) {
+        throw new Error(`バックエンドに接続できません: ${window.location.origin}`);
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+      return res.json();
+    }
+
+    const featureNames = {
+      all: "全体",
+      classes: "通常時間割",
+      notify: "通知設定",
+      overrides: "上書き設定",
+      gmail: "Gmail認証",
+      exam: "試験設定",
+    };
+
+    async function runIssue(feature) {
+      try {
+        const data = await issueLinkKey(feature);
+        el.result.classList.remove("hidden");
+        el.result.innerHTML = `
+          <div class='font-bold'>対象機能: ${escapeHtml(featureNames[data.feature] || data.feature || feature)}</div>
+          <div class='font-bold'>連携キー: <span class='text-xl'>${escapeHtml(data.link_key)}</span></div>
+          <div class='mt-2'>有効期限: ${escapeHtml(data.expires_at)}</div>
+          <div class='mt-2'>Discordで以下を実行してください:</div>
+          <div class='mt-1 p-2 bg-white border rounded font-mono'>/web applykey key:${escapeHtml(data.link_key)}</div>
+        `;
+      } catch (e) {
+        alert(e.message || "キー発行失敗");
+      }
+    }
+
+    // init controls
+    weekdays.forEach(w => {
+      const o = document.createElement("option");
+      o.value = w;
+      o.textContent = w;
+      el.ovDayWeekday.appendChild(o);
+    });
+    periods.forEach(p => {
+      const o = document.createElement("option");
+      o.value = p;
+      o.textContent = `${p}限`;
+      el.ovRoomPeriod.appendChild(o);
+    });
+
+    el.gmailAuthCode.value = draft.gmail_auth_code || "";
+
+    el.addDayOverride.addEventListener("click", () => {
+      const date = el.ovDayDate.value;
+      const weekday = el.ovDayWeekday.value;
+      if (!date || !weekday) return;
+      draft.day_overrides.push({ date, weekday });
+      persist();
+      renderOverrideLists();
+    });
+
+    el.addRoomOverride.addEventListener("click", () => {
+      const date = el.ovRoomDate.value;
+      const period = el.ovRoomPeriod.value;
+      const room = el.ovRoomValue.value.trim();
+      if (!date || !period || !room) return;
+      draft.room_overrides.push({ date, period, room });
+      persist();
+      renderOverrideLists();
+    });
+
+    el.openGmailAuth.addEventListener("click", async () => {
+      try {
+        const data = await fetchGmailAuthUrl();
+        el.gmailAuthUrl.href = data.auth_url;
+        el.gmailAuthUrl.classList.remove("hidden");
+      } catch (e) {
+        alert(e.message || "Gmail認証URL取得失敗");
+      }
+    });
+
+    el.issueKeyAll.addEventListener("click", async () => runIssue("all"));
+    el.issueKeyClasses.addEventListener("click", async () => runIssue("classes"));
+    el.issueKeyNotify.addEventListener("click", async () => runIssue("notify"));
+    el.issueKeyOverrides.addEventListener("click", async () => runIssue("overrides"));
+    el.issueKeyGmail.addEventListener("click", async () => runIssue("gmail"));
+    el.issueKeyExam.addEventListener("click", async () => runIssue("exam"));
+
+    [el.normalFirst, el.normalSecond, el.morningTime, el.gmailAuthCode].forEach(inp => {
+      inp.addEventListener("change", () => {
+        draft.notify.normal_first = Number(el.normalFirst.value || 15);
+        draft.notify.normal_second = Number(el.normalSecond.value || 10);
+        draft.notify.morning_time = el.morningTime.value || "08:00";
+        draft.gmail_auth_code = el.gmailAuthCode.value || "";
+        persist();
+      });
+    });
+
+    // Enter: 次項目へ。末尾は保存/追加。
+    wireEnterFlow([el.normalFirst, el.normalSecond, el.morningTime], () => {
+      draft.notify.normal_first = Number(el.normalFirst.value || 15);
+      draft.notify.normal_second = Number(el.normalSecond.value || 10);
+      draft.notify.morning_time = el.morningTime.value || "08:00";
+      persist();
+    });
+
+    wireEnterFlow([el.ovDayDate, el.ovDayWeekday], () => el.addDayOverride.click());
+    wireEnterFlow([el.ovRoomDate, el.ovRoomPeriod, el.ovRoomValue], () => el.addRoomOverride.click());
+    wireEnterFlow([el.gmailAuthCode], () => {
+      draft.gmail_auth_code = el.gmailAuthCode.value || "";
+      persist();
+    });
+
     // 初期化
     loadTimetable();
     loadSettings();
+    renderOverrideLists();
   </script>
 </body>
 </html>
