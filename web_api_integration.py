@@ -45,12 +45,29 @@ except Exception as e:
     logger.error(traceback.format_exc())
     HAS_AUTH = False
 
+# WebダッシュボードのAPIルーターのインポート
+try:
+    from web.api import classes, exams, makeup, settings
+    HAS_API_ROUTERS = True
+    logger.info("[Web Init] APIルーターのインポートに成功しました (HAS_API_ROUTERS=True)")
+except Exception as e:
+    import traceback
+    logger.error(f"[Web Init] APIルーターのインポートに失敗しました。理由: {e}")
+    logger.error(traceback.format_exc())
+    HAS_API_ROUTERS = False
+
 # FastAPI アプリケーションの初期化
 web_app = FastAPI(
     title="Discord授業情報Bot - Web API",
     description="Discord Bot のデータベースをWeb経由で操作",
     version="1.0.0",
 )
+
+if HAS_API_ROUTERS:
+    web_app.include_router(classes.router)
+    web_app.include_router(exams.router)
+    web_app.include_router(makeup.router)
+    web_app.include_router(settings.router)
 
 # 静的ファイル配信
 web_app.mount("/static", StaticFiles(directory="web"), name="static")
