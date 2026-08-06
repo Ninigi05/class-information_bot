@@ -79,10 +79,10 @@ async def create_exam_schedule(
         # 同じ名前の時間割が既に存在するかチェック
         for sched in schedules:
             if sched.get("name") == schedule_data.name:
-            raise HTTPException(
+                raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="既に存在します",
-            )
+                )
 
         # 新しい時間割を作成
         new_schedule = {
@@ -182,10 +182,10 @@ async def add_class_to_exam(
             )
 
         if class_data.period not in PERIOD_TO_TIME:
-        raise HTTPException(
+            raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"無効な時限です: {class_data.period}",
-        )
+            )
 
         target_schedule = None
         for sched in schedules:
