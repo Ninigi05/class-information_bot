@@ -337,6 +337,18 @@
           el.termEndDate.value = s.end_date || "";
           el.termClassCount.value = s.class_count || "";
         }
+        // ドラフトも最新状態に更新
+        if (data) {
+          if (data.notify) draft.notify = { ...draft.notify, ...data.notify };
+          if (data.term_settings) {
+            for (const t in data.term_settings) {
+              const ts = data.term_settings[t];
+              draft.term_ranges[t] = { start: ts.start_date || "", end: ts.end_date || "" };
+              draft.class_count_targets[t] = ts.class_count;
+            }
+          }
+          persist();
+        }
       } catch (e) {
         console.error("設定ロード失敗:", e);
       }

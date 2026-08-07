@@ -21,6 +21,7 @@ from web.schemas import (
     TermSettingsUpdate,
     SettingsShowResponse,
     SuccessResponse,
+    NotifySettingsUpdate,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,9 +60,19 @@ async def get_settings(current_user: TokenData = Depends(get_current_user)):
                 "class_count": class_counts.get(term),
             }
         
+        # 通知設定
+        notify_settings = user_data.get("notify_settings", {})
+        normal = notify_settings.get("normal", {})
+        morning_time = user_data.get("morning_notice_time", "08:00")
+        
         return SettingsShowResponse(
             period_times=period_times,
             term_settings=term_settings,
+            notify={
+                "normal_first": normal.get("first", 15),
+                "normal_second": normal.get("second", 10),
+                "morning_time": morning_time,
+            }
         )
     except Exception as e:
         logger.exception(f"設定取得エラー: {e}")
@@ -109,6 +120,53 @@ async def update_period_time(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="時限設定の更新に失敗しました",
+        )
+
+
+@router.put("", response_model=SuccessResponse)
+async def update_notify_settings(
+    notify_data: NotifySettingsUpdate,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """
+    通知設定（タイミング）を更新
+
+    Args:
+        notify_data: 通知設定情報
+
+    Returns:
+        成功メッセージ
+    """
+    try:
+        user_id = current_user.user_id
+        data = load_user_data(user_id)
+        
+        if notify_data.notify:
+            n = notify_data.notify
+            user_notify = data.setdefault("notify_settings", {})
+            
+            # 通常通知
+            normal = user_notify.setdefault("normal", {"first": 15, "second": 10})
+            if n.normal_first is not None:
+                normal["first"] = n.normal_first
+            if n.normal_second is not None:
+                normal["second"] = n.normal_second
+            
+            # 朝の通知時刻
+            if n.morning_time:
+                import re
+                if re.match(r"^(2[0-3]|[01]?\d):[0-5]\d$", n.morning_time):
+                    data["morning_notice_time"] = n.morning_time
+        
+        save_user_data(user_id, data)
+        logger.info(f"通知設定更新: user_id={user_id}")
+        
+        return SuccessResponse(message="通知設定を更新しました", data=None)
+    except Exception as e:
+        logger.exception(f"通知設定更新エラー: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="通知設定の更新に失敗しました",
         )
 
 

@@ -197,6 +197,20 @@ class TermSettingsUpdate(BaseModel):
     class_count: Optional[int] = Field(None, description="授業回数")
 
 
+class NotifySettingsDraft(BaseModel):
+    """通知設定（ドラフト）"""
+
+    normal_first: Optional[int] = None
+    normal_second: Optional[int] = None
+    morning_time: Optional[str] = None
+
+
+class NotifySettingsUpdate(BaseModel):
+    """通知設定更新リクエスト"""
+
+    notify: NotifySettingsDraft
+
+
 class SettingsShowResponse(BaseModel):
     """設定情報レスポンス"""
 
