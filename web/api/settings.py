@@ -47,12 +47,15 @@ async def get_settings(current_user: TokenData = Depends(get_current_user)):
         
         # 学期設定
         term_starts = user_data.get("term_start_dates", {}) or {}
+        term_ranges = user_data.get("term_ranges", {}) or {}
         class_counts = user_data.get("class_count_targets", {}) or {}
         
         term_settings = {}
         for term in [TERM_FIRST, TERM_SECOND]:
+            r = term_ranges.get(term, {})
             term_settings[term] = {
-                "start_date": term_starts.get(term),
+                "start_date": r.get("start") or term_starts.get(term),
+                "end_date": r.get("end"),
                 "class_count": class_counts.get(term),
             }
         
@@ -135,16 +138,30 @@ async def update_term_settings(
         user_id = current_user.user_id
         data = load_user_data(user_id)
         
-        # 開始日設定
-        if term_data.start_date:
-            try:
-                datetime.strptime(term_data.start_date, "%Y-%m-%d")
-            except ValueError:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail='日付は「YYYY-MM-DD」の形式で入力してください',
-                )
-            data.setdefault("term_start_dates", {})[term] = term_data.start_date
+        # 期間設定（開始日・終了日）
+        if term_data.start_date or term_data.end_date:
+            r = data.setdefault("term_ranges", {}).setdefault(term, {})
+            if term_data.start_date:
+                try:
+                    datetime.strptime(term_data.start_date, "%Y-%m-%d")
+                except ValueError:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail='開始日は「YYYY-MM-DD」の形式で入力してください',
+                    )
+                r["start"] = term_data.start_date
+                # 互換性のために古いキーも更新
+                data.setdefault("term_start_dates", {})[term] = term_data.start_date
+            
+            if term_data.end_date:
+                try:
+                    datetime.strptime(term_data.end_date, "%Y-%m-%d")
+                except ValueError:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail='終了日は「YYYY-MM-DD」の形式で入力してください',
+                    )
+                r["end"] = term_data.end_date
         
         # 授業回数設定
         if term_data.class_count:

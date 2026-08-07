@@ -47,9 +47,9 @@
       <p class="text-xs text-slate-500">セルクリックで授業追加/編集。変更は自動的にサーバーへ保存されます。</p>
     </section>
 
-    <!-- 通知設定 -->
+    <!-- 通知・学期設定 -->
     <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7 space-y-4">
-      <h2 class="text-lg font-bold">🔔 通知設定</h2>
+      <h2 class="text-lg font-bold">🔔 通知・学期設定</h2>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <label class="block">
           <span class="text-sm font-semibold">授業前通知 1回目（分）</span>
@@ -64,6 +64,24 @@
           <input id="morningTime" type="time" value="08:00" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border" />
         </label>
       </div>
+
+      <hr class="my-4 border-slate-200" />
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <label class="block">
+          <span class="text-sm font-semibold" id="termStartLabel">前期 通知開始日</span>
+          <input id="termStartDate" type="date" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border" />
+        </label>
+        <label class="block">
+          <span class="text-sm font-semibold" id="termEndLabel">前期 通知終了日</span>
+          <input id="termEndDate" type="date" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border" />
+        </label>
+        <label class="block">
+          <span class="text-sm font-semibold">授業回数（目標）</span>
+          <input id="termClassCount" type="number" min="1" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border" placeholder="15" />
+        </label>
+      </div>
+
       <div class="flex justify-end">
         <button id="saveSettingsBtn" type="button" class="px-5 py-2 rounded bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-sm">設定を保存</button>
       </div>
@@ -164,6 +182,11 @@
       normalSecond: document.getElementById("normalSecond"),
       morningTime: document.getElementById("morningTime"),
       saveSettingsBtn: document.getElementById("saveSettingsBtn"),
+      termStartLabel: document.getElementById("termStartLabel"),
+      termEndLabel: document.getElementById("termEndLabel"),
+      termStartDate: document.getElementById("termStartDate"),
+      termEndDate: document.getElementById("termEndDate"),
+      termClassCount: document.getElementById("termClassCount"),
       classDialog: document.getElementById("classDialog"),
       classDialogTitle: document.getElementById("classDialogTitle"),
       classDialogSlot: document.getElementById("classDialogSlot"),
@@ -203,6 +226,8 @@
       room_overrides: [],
       exam_schedules_by_term: { "前期": [], "後期": [] },
       exam_period_overrides: {},
+      term_ranges: { "前期": { start: "", end: "" }, "後期": { start: "", end: "" } },
+      class_count_targets: { "前期": null, "後期": null },
       gmail_auth_code: "",
     };
 
@@ -287,6 +312,12 @@
           el.normalSecond.value = data.notify.normal_second ?? 10;
           el.morningTime.value = data.notify.morning_time ?? "08:00";
         }
+        if (data && data.term_settings && data.term_settings[currentTerm]) {
+          const s = data.term_settings[currentTerm];
+          el.termStartDate.value = s.start_date || "";
+          el.termEndDate.value = s.end_date || "";
+          el.termClassCount.value = s.class_count || "";
+        }
       } catch (e) {
         console.error("設定ロード失敗:", e);
       }
@@ -299,12 +330,23 @@
         normal_second: Number(el.normalSecond.value || 10),
         morning_time: el.morningTime.value || "08:00"
       };
+      const termData = {
+        term: currentTerm,
+        start_date: el.termStartDate.value || null,
+        end_date: el.termEndDate.value || null,
+        class_count: el.termClassCount.value ? Number(el.termClassCount.value) : null
+      };
+
       try {
         await apiRequest('/api/settings', {
           method: 'PUT',
           body: JSON.stringify({ notify })
         });
-        alert("通知設定を保存しました。");
+        await apiRequest('/api/settings/term', {
+          method: 'POST',
+          body: JSON.stringify(termData)
+        });
+        alert("設定を保存しました。");
       } catch (e) {
         console.error("設定保存失敗:", e);
       }
@@ -417,7 +459,10 @@
       el.termToggle1st.classList.remove("bg-slate-300", "text-slate-700", "hover:bg-slate-400");
       el.termToggle2nd.classList.remove("bg-emerald-600", "text-white", "hover:bg-emerald-700");
       el.termToggle2nd.classList.add("bg-slate-300", "text-slate-700", "hover:bg-slate-400");
+      el.termStartLabel.textContent = "前期 通知開始日";
+      el.termEndLabel.textContent = "前期 通知終了日";
       loadTimetable();
+      loadSettings();
     });
 
     el.termToggle2nd.addEventListener("click", () => {
@@ -426,7 +471,10 @@
       el.termToggle2nd.classList.remove("bg-slate-300", "text-slate-700", "hover:bg-slate-400");
       el.termToggle1st.classList.remove("bg-emerald-600", "text-white", "hover:bg-emerald-700");
       el.termToggle1st.classList.add("bg-slate-300", "text-slate-700", "hover:bg-slate-400");
+      el.termStartLabel.textContent = "後期 通知開始日";
+      el.termEndLabel.textContent = "後期 通知終了日";
       loadTimetable();
+      loadSettings();
     });
 
     function renderOverrideLists() {
@@ -536,7 +584,7 @@
     const featureNames = {
       all: "全体",
       classes: "通常時間割",
-      notify: "通知設定",
+      notify: "通知・学期設定",
       overrides: "上書き設定",
       gmail: "Gmail認証",
       exam: "試験設定",
@@ -605,7 +653,15 @@
 
     el.issueKeyAll.addEventListener("click", async () => runIssue("all"));
     el.issueKeyClasses.addEventListener("click", async () => runIssue("classes"));
-    el.issueKeyNotify.addEventListener("click", async () => runIssue("notify"));
+    el.issueKeyNotify.addEventListener("click", async () => {
+      // 連携前にドラフトへ反映
+      const termR = draft.term_ranges[currentTerm];
+      termR.start = el.termStartDate.value || "";
+      termR.end = el.termEndDate.value || "";
+      draft.class_count_targets[currentTerm] = el.termClassCount.value ? Number(el.termClassCount.value) : null;
+      persist();
+      runIssue("notify");
+    });
     el.issueKeyOverrides.addEventListener("click", async () => runIssue("overrides"));
     el.issueKeyGmail.addEventListener("click", async () => runIssue("gmail"));
     el.issueKeyExam.addEventListener("click", async () => runIssue("exam"));

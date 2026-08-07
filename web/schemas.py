@@ -184,6 +184,7 @@ class TermSettings(BaseModel):
 
     term: str = Field(..., description="学期（前期 または 後期）")
     start_date: Optional[str] = Field(None, description="開始日（YYYY-MM-DD）")
+    end_date: Optional[str] = Field(None, description="終了日（YYYY-MM-DD）")
     class_count: Optional[int] = Field(None, description="授業回数")
 
 
@@ -192,6 +193,7 @@ class TermSettingsUpdate(BaseModel):
 
     term: str = Field(..., description="学期（前期 または 後期）")
     start_date: Optional[str] = Field(None, description="開始日（YYYY-MM-DD）")
+    end_date: Optional[str] = Field(None, description="終了日（YYYY-MM-DD）")
     class_count: Optional[int] = Field(None, description="授業回数")
 
 

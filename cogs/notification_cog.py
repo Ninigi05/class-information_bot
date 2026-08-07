@@ -119,6 +119,17 @@ class NotificationCog(commands.Cog):
                     continue
 
                 term = get_current_term()
+                term_ranges = data.get("term_ranges", {}) or {}
+                term_range = term_ranges.get(term)
+                if term_range:
+                    try:
+                        s_dt = datetime.fromisoformat(term_range["start"]).date()
+                        e_dt = datetime.fromisoformat(term_range["end"]).date()
+                        if not (s_dt <= now.date() <= e_dt):
+                            continue  # 通知期間外
+                    except Exception:
+                        pass
+
                 classes = data.get("classes_by_term", {}).get(term, []) or []
                 exam_schedules = (
                     data.get("exam_schedules_by_term", {}).get(term, []) or []
@@ -277,6 +288,46 @@ class NotificationCog(commands.Cog):
                                     msg = f"{username}さん、教室「{room}」で{off//60}分後に授業「{cls_item.get('subject')}」が始まります"
                                     await send_dm(user, msg)
                                     self._sent_reminders[user_id].add(rem_key)
+
+                                    # 授業回数カウントと自動削除 (2回目の通知時にカウント)
+                                    if off == offsets[-1]:
+                                        class_counts = (
+                                            data.get("class_attendance_count", {}) or {}
+                                        )
+                                        term_counts = class_counts.setdefault(term, {})
+                                        subj_key = f"{cls_item.get('day')}|{cls_item.get('period')}|{cls_item.get('subject')}"
+                                        current_count = term_counts.get(subj_key, 0) + 1
+                                        term_counts[subj_key] = current_count
+                                        data["class_attendance_count"] = class_counts
+
+                                        # 目標回数に達したかチェック
+                                        target_count = data.get(
+                                            "class_count_targets", {}
+                                        ).get(term)
+                                        if (
+                                            target_count
+                                            and current_count >= target_count
+                                        ):
+                                            # 自動削除
+                                            new_classes = [
+                                                c
+                                                for c in classes
+                                                if not (
+                                                    c.get("day") == cls_item.get("day")
+                                                    and c.get("period")
+                                                    == cls_item.get("period")
+                                                    and c.get("subject")
+                                                    == cls_item.get("subject")
+                                                )
+                                            ]
+                                            data.setdefault("classes_by_term", {})[
+                                                term
+                                            ] = new_classes
+                                            await send_dm(
+                                                user,
+                                                f"授業「{cls_item.get('subject')}」の通知回数が設定された {target_count} 回に達したため、この授業のデータを削除し通知を終了しました。",
+                                            )
+                                        save_user_data(user_id, data)
 
                     # 朝の一覧
                     if _is_user_morning_time(now, data):

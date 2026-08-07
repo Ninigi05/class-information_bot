@@ -106,11 +106,16 @@ class SettingCog(commands.GroupCog, name="setting"):
             f"  試験期間: {exam_cfg.get('first')}分前 / {exam_cfg.get('second')}分前"
         )
 
-        lines.append("\n【学期開始日と授業回数】")
+        lines.append("\n【学期の通知期間と授業回数】")
+        term_ranges = data.get("term_ranges", {}) or {}
         for term in [TERM_FIRST, TERM_SECOND]:
-            start_date = term_starts.get(term, "未設定")
+            r = term_ranges.get(term, {})
+            start_date = r.get("start") or term_starts.get(term, "未設定")
+            end_date = r.get("end") or "未設定"
             count = class_counts.get(term, "未設定")
-            lines.append(f"  {term}: 開始日 {start_date} / 授業回数 {count}回")
+            lines.append(
+                f"  {term}: {start_date} 〜 {end_date} / 授業回数目標 {count}回"
+            )
 
         try:
             dm = await interaction.user.create_dm()
@@ -156,18 +161,22 @@ class SettingCog(commands.GroupCog, name="setting"):
         )
 
     @app_commands.command(
-        name="term_start", description="学期の開始日を設定します（前期または後期）"
+        name="term_range",
+        description="学期の通知期間（開始日と終了日）を設定します",
     )
     @app_commands.describe(
-        term="学期（前期 または 後期）", date="開始日（YYYY-MM-DD 形式）"
+        term="学期（前期 または 後期）",
+        start_date="開始日（YYYY-MM-DD 形式）",
+        end_date="終了日（YYYY-MM-DD 形式）",
     )
     @app_commands.autocomplete(term=term_autocomplete)
-    async def set_term_start(
-        self, interaction: discord.Interaction, term: str, date: str
+    async def set_term_range(
+        self, interaction: discord.Interaction, term: str, start_date: str, end_date: str
     ):
         term = normalize_term_key(term)
         try:
-            datetime.strptime(date, "%Y-%m-%d")
+            datetime.strptime(start_date, "%Y-%m-%d")
+            datetime.strptime(end_date, "%Y-%m-%d")
         except ValueError:
             await interaction.response.send_message(
                 "日付は「YYYY-MM-DD」の形式で入力してください（例：2026-04-01）。",
@@ -177,11 +186,16 @@ class SettingCog(commands.GroupCog, name="setting"):
 
         user_id = interaction.user.id
         data = self.get_data(user_id)
-        data.setdefault("term_start_dates", {})[term] = date
+        data.setdefault("term_ranges", {})[term] = {
+            "start": start_date,
+            "end": end_date,
+        }
+        # 互換性のために古いキーも更新
+        data.setdefault("term_start_dates", {})[term] = start_date
         save_user_data(user_id, data)
 
         await interaction.response.send_message(
-            f"{term}の開始日を {date} に設定しました。", ephemeral=True
+            f"{term}の期間を {start_date} から {end_date} に設定しました。", ephemeral=True
         )
 
     @app_commands.command(
