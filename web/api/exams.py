@@ -127,6 +127,11 @@ async def get_exam_schedule(
         schedules = user_data.get("exam_schedules", [])
 
         target_schedule = None
+        # Get schedules from the correct term-aware structure
+        selected_term = get_current_term()
+        schedules_by_term = user_data.get("exam_schedules_by_term", {})
+        schedules = schedules_by_term.get(selected_term, [])
+        
         for sched in schedules:
             if sched.get("name") == schedule_name:
                 target_schedule = sched
@@ -188,6 +193,11 @@ async def add_class_to_exam(
             )
 
         target_schedule = None
+        # Get schedules from the correct term-aware structure
+        selected_term = get_current_term()
+        schedules_by_term = user_data.get("exam_schedules_by_term", {})
+        schedules = schedules_by_term.get(selected_term, [])
+
         for sched in schedules:
             if sched.get("name") == schedule_name:
                 target_schedule = sched
@@ -327,6 +337,11 @@ async def delete_exam_schedule(
         schedules = user_data.get("exam_schedules", [])
 
         found = False
+        # Get schedules from the correct term-aware structure
+        selected_term = get_current_term()
+        schedules_by_term = user_data.get("exam_schedules_by_term", {})
+        schedules = schedules_by_term.get(selected_term, [])
+
         for i, sched in enumerate(schedules):
             if sched.get("name") == schedule_name:
                 schedules.pop(i)

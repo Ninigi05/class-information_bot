@@ -28,7 +28,7 @@ DISCORD_API_USER_URL = "https://discord.com/api/users/@me"
 # =============== FastAPI ===============
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24時間
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 30  # 30日間
 
 # =============== データ保存先 ===============
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

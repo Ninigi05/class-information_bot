@@ -736,6 +736,9 @@ def _apply_web_payload_to_user_data(user_data: dict, payload: dict) -> dict:
         user_data.setdefault("term_start_dates", {}).update(
             payload.get("term_start_dates") or {}
         )
+    if "term_ranges" in payload and isinstance(payload.get("term_ranges"), dict):
+        user_data.setdefault("term_ranges", {}).update(payload.get("term_ranges") or {})
+
     if "class_count_targets" in payload and isinstance(
         payload.get("class_count_targets"), dict
     ):
