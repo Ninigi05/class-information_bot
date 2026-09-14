@@ -34,6 +34,7 @@ TERM_ALIASES = {
     "後期": TERM_SECOND,
 }
 
+
 def get_current_term_orig() -> str:
     """Return "前期" or "後期" based on current month."""
     month = datetime.now().month
@@ -45,12 +46,14 @@ def get_current_term(user_id: int | None = None) -> str:
         return get_effective_term(user_id)
     return get_current_term_orig()
 
+
 def normalize_term_key(term: str | None) -> str:
     """Normalize term labels to canonical Japanese keys."""
     key = str(term or "").strip().lower()
     if not key:
         return get_current_term_orig()
     return TERM_ALIASES.get(key, str(term).strip())
+
 
 def get_effective_term(user_id: int) -> str:
     """
@@ -59,6 +62,7 @@ def get_effective_term(user_id: int) -> str:
     """
     from utils import load_user_data, get_current_term
     from datetime import datetime
+
     data = load_user_data(user_id)
     settings = data.get("settings", {})
     now_date = datetime.now().strftime("%Y-%m-%d")
@@ -69,13 +73,16 @@ def get_effective_term(user_id: int) -> str:
         end = term_settings.get("end_date")
         if start and end:
             if start <= now_date <= end:
-                logger.info(f"[Term Detection] User={user_id} detected as '{term}' (Setting-based: {start} to {end})")
+                logger.info(
+                    f"[Term Detection] User={user_id} detected as '{term}' (Setting-based: {start} to {end})"
+                )
                 return term
-    
-    term = get_current_term_orig()
-    logger.info(f"[Term Detection] User={user_id} detected as '{term}' (Month-based fallback)")
-    return term
 
+    term = get_current_term()
+    logger.info(
+        f"[Term Detection] User={user_id} detected as '{term}' (Month-based fallback)"
+    )
+    return term
 
 
 def get_attendance_key(term: str, weekday: int, period: str, subject: str) -> str:
@@ -84,7 +91,7 @@ def get_attendance_key(term: str, weekday: int, period: str, subject: str) -> st
 
 
 def get_user_data_mtime(user_id):
-    """ユーザーチE�Eタの最終更新時刻を取得すめE""
+    """ユーザーチE�Eタの最終更新時刻を取得すめE"""
     path = os.path.join(BASE_DIR, f"user_{user_id}.json")
     if not os.path.exists(path):
         return 0
@@ -110,7 +117,7 @@ def load_user_data(user_id):
 
 
 def _migrate_user_data_to_term_aware(data: dict) -> dict:
-    """Migrate legacy single-term data structure to term-aware structure."""
+    "Migrate legacy single-term data structure to term-aware structure."
 
     def _normalize_term_map(raw: dict | None) -> dict:
         normalized: dict[str, list] = {TERM_FIRST: [], TERM_SECOND: []}
