@@ -8,7 +8,7 @@ from utils import (
     get_user_data_mtime,
     send_dm,
     send_long_dm,
-    get_current_term,
+    get_effective_term,
     WEEKDAYS,
     WEEKDAY_MAP,
     PERIOD_TO_TIME,
@@ -39,7 +39,7 @@ class ExamCog(commands.GroupCog, name="exam"):
     ):
         user_id = interaction.user.id
         data = self.get_data(user_id)
-        term = get_current_term()
+        term = get_effective_term(user_id)
         schedules = data.get("exam_schedules_by_term", {}).get(term, []) or []
         choices = []
         for s in schedules:
@@ -67,7 +67,7 @@ class ExamCog(commands.GroupCog, name="exam"):
     ):
         user_id = interaction.user.id
         data = self.get_data(user_id)
-        term = get_current_term()
+        term = get_effective_term(user_id)
         subjects = []
         for c in data.get("classes_by_term", {}).get(term, []) or []:
             s = str(c.get("subject", "")).strip()
@@ -90,7 +90,7 @@ class ExamCog(commands.GroupCog, name="exam"):
     async def room_autocomplete(self, interaction: discord.Interaction, current: str):
         user_id = interaction.user.id
         data = self.get_data(user_id)
-        term = get_current_term()
+        term = get_effective_term(user_id)
         rooms = []
         for c in data.get("classes_by_term", {}).get(term, []) or []:
             r = str(c.get("room", "")).strip()
@@ -111,17 +111,17 @@ class ExamCog(commands.GroupCog, name="exam"):
         return choices
 
     @app_commands.command(
-        name="set_time", description="試験の各時限開始時間を登録します"
+        name="set_time", description="試験�E吁E��限開始時間を登録しまぁE
     )
     @app_commands.describe(
-        period="設定する時限（例：１）", time="開始時刻（例：09:00）"
+        period="設定する時限（例：１！E, time="開始時刻�E�例！E9:00�E�E
     )
     async def set_exam_period_time(
         self, interaction: discord.Interaction, period: str, time: str
     ):
         if not re.match(r"^(2[0-3]|[01]?\d):[0-5]\d$", time):
             await interaction.response.send_message(
-                "時刻は「HH:MM」の形式で入力してください（例：09:00）。時刻は0〜23時：0〜59分で入力して下さい。",
+                "時刻は「HH:MM」�E形式で入力してください�E�例！E9:00�E�。時刻は0、E3時！E、E9刁E��入力して下さぁE��E,
                 ephemeral=True,
             )
             return
@@ -136,14 +136,14 @@ class ExamCog(commands.GroupCog, name="exam"):
         save_user_data(user_id, data)
 
         await interaction.response.send_message(
-            f"試験時の{period}限の開始時刻を{time}に設定しました。", ephemeral=True
+            f"試験時の{period}限�E開始時刻を{time}に設定しました、E, ephemeral=True
         )
 
     @app_commands.command(
-        name="create", description="試験用時間割を作成します（名前・期間）"
+        name="create", description="試験用時間割を作�Eします（名前�E期間�E�E
     )
     @app_commands.describe(
-        name="時間割名", start="開始日 (YYYY-MM-DD)", end="終了日 (YYYY-MM-DD)"
+        name="時間割吁E, start="開始日 (YYYY-MM-DD)", end="終亁E�� (YYYY-MM-DD)"
     )
     async def exam_create(
         self, interaction: discord.Interaction, name: str, start: str, end: str
@@ -154,22 +154,22 @@ class ExamCog(commands.GroupCog, name="exam"):
             ed = datetime.strptime(end, "%Y-%m-%d").date()
         except Exception:
             await interaction.followup.send(
-                "日付形式が無効です。YYYY-MM-DD で指定してください。", ephemeral=True
+                "日付形式が無効です、EYYY-MM-DD で持E��してください、E, ephemeral=True
             )
             return
         if sd > ed:
             await interaction.followup.send(
-                "開始日は終了日より前にしてください。", ephemeral=True
+                "開始日は終亁E��より前にしてください、E, ephemeral=True
             )
             return
         user_id = interaction.user.id
         data = self.get_data(user_id)
-        term = get_current_term()
+        term = get_effective_term(user_id)
         data.setdefault("exam_schedules_by_term", {}).setdefault(term, [])
         for s in data["exam_schedules_by_term"][term]:
             if s.get("name") == name:
                 await interaction.followup.send(
-                    "同名の試験時間割が既に存在します。", ephemeral=True
+                    "同名の試験時間割が既に存在します、E, ephemeral=True
                 )
                 return
         data["exam_schedules_by_term"][term].append(
@@ -177,20 +177,20 @@ class ExamCog(commands.GroupCog, name="exam"):
         )
         save_user_data(user_id, data)
         await send_dm(
-            interaction.user, f" 試験時間割「{name}」を作成しました: {start} ～ {end}"
+            interaction.user, f" 試験時間割「{name}」を作�Eしました: {start} �E�E{end}"
         )
         await interaction.followup.send(
-            "試験時間割をDMで作成しました。", ephemeral=True
+            "試験時間割をDMで作�Eしました、E, ephemeral=True
         )
 
-    @app_commands.command(name="delete", description="指定した試験時間割を削除します")
-    @app_commands.describe(name="削除する時間割名")
+    @app_commands.command(name="delete", description="持E��した試験時間割を削除しまぁE)
+    @app_commands.describe(name="削除する時間割吁E)
     @app_commands.autocomplete(name=exam_name_autocomplete)
     async def exam_delete(self, interaction: discord.Interaction, name: str):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
         data = self.get_data(user_id)
-        term = get_current_term()
+        term = get_effective_term(user_id)
         before = len(data.get("exam_schedules_by_term", {}).get(term, []) or [])
         data.setdefault("exam_schedules_by_term", {}).setdefault(term, [])
         data["exam_schedules_by_term"][term] = [
@@ -203,62 +203,62 @@ class ExamCog(commands.GroupCog, name="exam"):
             data.get("exam_schedules_by_term", {}).get(term, []) or []
         )
         await send_dm(
-            interaction.user, f"🗑️ 試験時間割「{name}」を削除しました（{removed}件）。"
+            interaction.user, f"🗑�E�E試験時間割「{name}」を削除しました�E�Eremoved}件�E�、E
         )
-        await interaction.followup.send("削除結果をDMで送信しました。", ephemeral=True)
+        await interaction.followup.send("削除結果をDMで送信しました、E, ephemeral=True)
 
     @app_commands.command(
-        name="list", description="登録済み試験時間割の一覧をDMで表示します"
+        name="list", description="登録済み試験時間割の一覧をDMで表示しまぁE
     )
     async def exam_list(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
         data = self.get_data(user_id)
-        term = get_current_term()
+        term = get_effective_term(user_id)
         schedules = data.get("exam_schedules_by_term", {}).get(term, []) or []
         if not schedules:
-            await send_dm(interaction.user, "試験時間割は登録されていません。")
+            await send_dm(interaction.user, "試験時間割は登録されてぁE��せん、E)
             await interaction.followup.send(
-                "DMを送信しました（試験時間割なし）。", ephemeral=True
+                "DMを送信しました�E�試験時間割なし）、E, ephemeral=True
             )
             return
         lines = [" 登録済み試験時間割:"]
         for s in sorted(schedules, key=lambda x: x.get("start", "")):
             lines.append(
-                f"- {s.get('name')} : {s.get('start')} ～ {s.get('end')} ({len(s.get('classes', []))}件)"
+                f"- {s.get('name')} : {s.get('start')} �E�E{s.get('end')} ({len(s.get('classes', []))}件)"
             )
         await send_long_dm(interaction.user, "\n".join(lines))
         await interaction.followup.send(
-            "試験時間割一覧をDMで送信しました。", ephemeral=True
+            "試験時間割一覧をDMで送信しました、E, ephemeral=True
         )
 
     @app_commands.command(
-        name="show", description="指定した試験時間割の中身を表示します"
+        name="show", description="持E��した試験時間割の中身を表示しまぁE
     )
-    @app_commands.describe(name="表示する時間割名")
+    @app_commands.describe(name="表示する時間割吁E)
     @app_commands.autocomplete(name=exam_name_autocomplete)
     async def exam_show(self, interaction: discord.Interaction, name: str):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
         data = self.get_data(user_id)
-        term = get_current_term()
+        term = get_effective_term(user_id)
         schedules = data.get("exam_schedules_by_term", {}).get(term, []) or []
         target = next((s for s in schedules if s.get("name") == name), None)
         if not target:
             await interaction.followup.send(
-                "該当の時間割が見つかりませんでした。", ephemeral=True
+                "該当�E時間割が見つかりませんでした、E, ephemeral=True
             )
             return
         classes = target.get("classes", []) or []
         if not classes:
             await send_dm(
-                interaction.user, f"試験時間割「{name}」には授業が登録されていません。"
+                interaction.user, f"試験時間割「{name}」には授業が登録されてぁE��せん、E
             )
             await interaction.followup.send(
-                "DMを送信しました（授業なし）。", ephemeral=True
+                "DMを送信しました�E�授業なし）、E, ephemeral=True
             )
             return
-        lines = [f" 試験時間割「{name}」の授業:"]
+        lines = [f" 試験時間割「{name}」�E授業:"]
         classes_sorted = sorted(
             classes,
             key=lambda x: (
@@ -267,24 +267,24 @@ class ExamCog(commands.GroupCog, name="exam"):
             ),
         )
         for c in classes_sorted:
-            wd = WEEKDAYS[int(c.get("day"))] if c.get("day") is not None else "不明曜日"
+            wd = WEEKDAYS[int(c.get("day"))] if c.get("day") is not None else "不�E曜日"
             period_display = c.get("period") or c.get("time") or "?"
             lines.append(
-                f"{wd} {period_display}限 {c.get('subject', '')} ({c.get('room', '未設定')})"
+                f"{wd} {period_display}陁E{c.get('subject', '')} ({c.get('room', '未設宁E)})"
             )
         await send_long_dm(interaction.user, "\n".join(lines))
         await interaction.followup.send(
-            "試験時間割をDMで送信しました。", ephemeral=True
+            "試験時間割をDMで送信しました、E, ephemeral=True
         )
 
-    @app_commands.command(name="addclass", description="試験時間割に授業を追加します")
+    @app_commands.command(name="addclass", description="試験時間割に授業を追加しまぁE)
     @app_commands.describe(
-        name="時間割名",
+        name="時間割吁E,
         weekday="曜日",
         period="時限",
-        subject="科目名",
+        subject="科目吁E,
         room="教室",
-        time="（任意）開始時刻 HH:MM",
+        time="�E�任意）開始時刻 HH:MM",
     )
     @app_commands.autocomplete(
         name=exam_name_autocomplete,
@@ -306,12 +306,12 @@ class ExamCog(commands.GroupCog, name="exam"):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
         data = self.get_data(user_id)
-        term = get_current_term()
+        term = get_effective_term(user_id)
         schedules = data.get("exam_schedules_by_term", {}).get(term, []) or []
         target = next((s for s in schedules if s.get("name") == name), None)
         if not target:
             await interaction.followup.send(
-                "該当の時間割が見つかりませんでした。", ephemeral=True
+                "該当�E時間割が見つかりませんでした、E, ephemeral=True
             )
             return
         day_idx = WEEKDAY_MAP.get(weekday)
@@ -327,17 +327,17 @@ class ExamCog(commands.GroupCog, name="exam"):
         save_user_data(user_id, data)
         await send_dm(
             interaction.user,
-            f" 試験時間割「{name}」に授業を追加しました: {weekday} {period}限 {subject} ({room})",
+            f" 試験時間割「{name}」に授業を追加しました: {weekday} {period}陁E{subject} ({room})",
         )
         await interaction.followup.send(
-            "試験時間割に授業を追加しました（DM送付）。", ephemeral=True
+            "試験時間割に授業を追加しました�E�EM送付）、E, ephemeral=True
         )
 
     @app_commands.command(
         name="removeclass",
-        description="試験時間割から授業を削除します（曜日＋時限で指定）",
+        description="試験時間割から授業を削除します（曜日�E�時限で持E��！E,
     )
-    @app_commands.describe(name="時間割名", weekday="曜日", period="時限")
+    @app_commands.describe(name="時間割吁E, weekday="曜日", period="時限")
     @app_commands.autocomplete(
         name=exam_name_autocomplete,
         weekday=weekday_autocomplete,
@@ -349,12 +349,12 @@ class ExamCog(commands.GroupCog, name="exam"):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
         data = self.get_data(user_id)
-        term = get_current_term()
+        term = get_effective_term(user_id)
         schedules = data.get("exam_schedules_by_term", {}).get(term, []) or []
         target = next((s for s in schedules if s.get("name") == name), None)
         if not target:
             await interaction.followup.send(
-                "該当の時間割が見つかりませんでした。", ephemeral=True
+                "該当�E時間割が見つかりませんでした、E, ephemeral=True
             )
             return
         day_idx = WEEKDAY_MAP.get(weekday)
@@ -368,9 +368,9 @@ class ExamCog(commands.GroupCog, name="exam"):
         deleted = before - len(target.get("classes", []))
         await send_dm(
             interaction.user,
-            f" 試験時間割「{name}」から {weekday} {period}限 を削除しました（{deleted}件）。",
+            f" 試験時間割「{name}」かめE{weekday} {period}陁Eを削除しました�E�Edeleted}件�E�、E,
         )
-        await interaction.followup.send("削除結果をDMで送信しました。", ephemeral=True)
+        await interaction.followup.send("削除結果をDMで送信しました、E, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

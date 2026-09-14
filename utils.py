@@ -38,18 +38,78 @@ TERM_ALIASES = {
 from datetime import datetime
 
 
-def get_current_term() -> str:
+
+def get_current_term(user_id: int | None = None) -> str:
+    if user_id is not None:
+        return get_effective_term(user_id)
+    return get_current_term_orig()
+
+
+def get_current_term_orig() -> str:
     """Return "前期" or "後期" based on current month."""
     month = datetime.now().month
     return TERM_FIRST if 4 <= month <= 9 else TERM_SECOND
 
 
-def normalize_term_key(term: str | None) -> str:
+def get_effective_term(user_id: int) -> str:
+    """
+    ユーザー設定の開始日・終了日を考慮して、現在の学期を判定する。
+    設定がない場合は従来の get_current_term_orig() (月判定) にフォールバックする。
+    """
+    data = load_user_data(user_id)
+    settings = data.get("settings", {})
+    now_date = datetime.now().strftime("%Y-%m-%d")
+
+    for term in ["前期", "後期"]:
+        term_settings = settings.get(term, {})
+        start = term_settings.get("start_date")
+        end = term_settings.get("end_date")
+        if start and end:
+            if start <= now_date <= end:
+                logger.info(f"[Term Detection] User={user_id} detected as '{term}' (Setting-based: {start} to {end})")
+                return term
+    
+    term = get_current_term_orig()
+    logger.info(f"[Term Detection] User={user_id} detected as '{term}' (Month-based fallback)")
+    return term
+
+def get_current_term_orig() -> str:
+    """Return "前期" or "後期" based on current month."""
+    month = datetime.now().month
+    return TERM_FIRST if 4 <= month <= 9 else TERM_SECOND
+
+
+def get_current_term(user_id: int | None = None) -> str:\r\n    if user_id is not None:\r\n        return get_effective_term(user_id)\r\n    return get_current_term_orig()\r\n\r\ndef normalize_term_key(term: str | None) -> str:
     """Normalize term labels to canonical Japanese keys."""
     key = str(term or "").strip().lower()
     if not key:
-        return get_current_term()
+        return get_current_term_orig()
     return TERM_ALIASES.get(key, str(term).strip())
+
+def get_effective_term(user_id: int) -> str:
+    """
+    ユーザー設定�E開始日・終亁E��を老E�Eして、現在の学期を判定する、E
+    設定がなぁE��合�E従来の get_current_term() (月判宁E にフォールバックする、E
+    """
+    from utils import load_user_data, get_current_term
+    from datetime import datetime
+    data = load_user_data(user_id)
+    settings = data.get("settings", {})
+    now_date = datetime.now().strftime("%Y-%m-%d")
+
+    for term in ["前期", "後期"]:
+        term_settings = settings.get(term, {})
+        start = term_settings.get("start_date")
+        end = term_settings.get("end_date")
+        if start and end:
+            if start <= now_date <= end:
+                logger.info(f"[Term Detection] User={user_id} detected as '{term}' (Setting-based: {start} to {end})")
+                return term
+    
+    term = get_current_term()
+    logger.info(f"[Term Detection] User={user_id} detected as '{term}' (Month-based fallback)")
+    return term
+
 
 
 def get_attendance_key(term: str, weekday: int, period: str, subject: str) -> str:
@@ -58,7 +118,7 @@ def get_attendance_key(term: str, weekday: int, period: str, subject: str) -> st
 
 
 def get_user_data_mtime(user_id):
-    """ユーザーデータの最終更新時刻を取得する"""
+    """ユーザーチE�Eタの最終更新時刻を取得すめE""
     path = os.path.join(BASE_DIR, f"user_{user_id}.json")
     if not os.path.exists(path):
         return 0
@@ -71,11 +131,11 @@ def load_user_data(user_id):
         return {}
     try:
         with open(path, "r", encoding="utf-8") as f:
-            # 読み込み時も共有ロックを取得して読み込み中の書き込みを防ぐ
+            # 読み込み時も共有ロチE��を取得して読み込み中の書き込みを防ぁE
             fcntl.flock(f.fileno(), fcntl.LOCK_SH)
             data = json.load(f)
     except (IOError, json.JSONDecodeError) as e:
-        logger.error(f"データ読み込み失敗 user={user_id}: {e}")
+        logger.error(f"チE�Eタ読み込み失敁Euser={user_id}: {e}")
         return {}
 
     # Backward compatibility: migrate old single-term structure to new structure
@@ -132,14 +192,14 @@ def save_user_data(user_id, data):
     tmp_path = path + ".tmp"
     try:
         with open(tmp_path, "w", encoding="utf-8") as f:
-            # 排他ロックを取得して書き込み
+            # 排他ロチE��を取得して書き込み
             fcntl.flock(f.fileno(), fcntl.LOCK_EX)
             json.dump(data_to_save, f, indent=4, ensure_ascii=False)
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp_path, path)
     except Exception:
-        logger.exception(f"ユーザーデータ保存失敗: {path}")
+        logger.exception(f"ユーザーチE�Eタ保存失敁E {path}")
 
 
 async def send_dm(user, message):
@@ -151,7 +211,7 @@ async def send_dm(user, message):
             uid = user.id
         except Exception:
             uid = "unknown"
-        logger.error(f"DM送信失敗: {uid} ({e})")
+        logger.error(f"DM送信失敁E {uid} ({e})")
 
 
 async def send_long_dm(user, text, chunk_size=1900):

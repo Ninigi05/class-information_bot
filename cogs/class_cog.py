@@ -14,6 +14,7 @@ from utils import (
     send_dm,
     send_long_dm,
     get_current_term,
+    get_effective_term,
     WEEKDAYS,
     WEEKDAY_MAP,
     PERIOD_TO_TIME,
@@ -34,41 +35,19 @@ class ClassCog(commands.GroupCog, name="class"):
     def get_data(self, user_id):
         current_mtime = get_user_data_mtime(user_id)
         if user_id not in self.user_cache:
-            logger.info(f"[DEBUG] 初回キャッシュ: user={user_id}")
+            logger.info(f"[DEBUG] 初回キャチE��ュ: user={user_id}")
         if (
             user_id not in self.user_cache
             or self.user_cache[user_id]["mtime"] < current_mtime
         ):
             logger.info(
-                f"[DEBUG] キャッシュリロード: user={user_id} (old={self.user_cache.get(user_id, {}).get('mtime')}, new={current_mtime})"
+                f"[DEBUG] キャチE��ュリローチE user={user_id} (old={self.user_cache.get(user_id, {}).get('mtime')}, new={current_mtime})"
             )
             self.user_cache[user_id] = {
                 "mtime": current_mtime,
                 "data": load_user_data(user_id),
             }
         return self.user_cache[user_id]["data"]
-    def get_effective_term(self, user_id: int) -> str:
-        """
-        ユーザー設定の開始日・終了日を考慮して、現在の学期を判定する。
-        設定がない場合は従来の get_current_term() (月判定) にフォールバックする。
-        """
-        data = self.get_data(user_id)
-        settings = data.get("settings", {})
-        now_date = datetime.now().strftime("%Y-%m-%d")
-
-        # 設定されている学期の開始日・終了日をチェック
-        for term in ["前期", "後期"]:
-            term_settings = settings.get(term, {})
-            start = term_settings.get("start_date")
-            end = term_settings.get("end_date")
-            if start and end:
-                if start <= now_date <= end:
-                    return term
-        
-        # 設定に当てはまらない、または設定がない場合は月で判定
-        return get_current_term()
-
-
 
     async def weekday_autocomplete(
         self, interaction: discord.Interaction, current: str
@@ -91,7 +70,7 @@ class ClassCog(commands.GroupCog, name="class"):
     ):
         user_id = interaction.user.id
         data = self.get_data(user_id)
-        term = self.get_effective_term(user_id)
+        term = get_effective_term(user_id)
         subjects = []
         for c in data.get("classes_by_term", {}).get(term, []) or []:
             s = str(c.get("subject", "")).strip()
@@ -112,7 +91,7 @@ class ClassCog(commands.GroupCog, name="class"):
         if not choices and current.strip():
             choices.append(
                 app_commands.Choice(
-                    name=f"検索候補なし（新規: {current}）", value=current
+                    name=f"検索候補なし（新要E {current}�E�E, value=current
                 )
             )
         return choices
@@ -120,7 +99,7 @@ class ClassCog(commands.GroupCog, name="class"):
     async def room_autocomplete(self, interaction: discord.Interaction, current: str):
         user_id = interaction.user.id
         data = self.get_data(user_id)
-        term = self.get_effective_term(user_id)
+        term = get_effective_term(user_id)
         rooms = []
         for c in data.get("classes_by_term", {}).get(term, []) or []:
             r = str(c.get("room", "")).strip()
@@ -145,7 +124,7 @@ class ClassCog(commands.GroupCog, name="class"):
         normalized = re.sub(r"[\t\r\n]+", " ", str(text or "").strip())
         if not normalized:
             return []
-        chunks = re.split(r"[\s/・,，、()\[\]{}]+", normalized)
+        chunks = re.split(r"[\s/・,�E�、E)\[\]{}]+", normalized)
         return [x for x in chunks if x]
 
     @staticmethod
@@ -208,21 +187,23 @@ class ClassCog(commands.GroupCog, name="class"):
         return text
 
     @app_commands.command(
-        name="table", description="授業一覧を時間割表形式で表示します"
+        name="table", description="授業一覧を時間割表形式で表示しまぁE
     )
-    @app_commands.describe(term="対象学期（前期/後期、未指定時は現在の学期）")
+    @app_commands.describe(term="対象学期（前朁E後期、未持E��時は現在の学期！E)
     @app_commands.autocomplete(term=term_autocomplete)
     async def class_table(
         self, interaction: discord.Interaction, term: str | None = None
     ):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
+        logger.info(f"[Command] class table: user={user_id} term_arg={term}")
         data = self.get_data(user_id)
-        selected_term = normalize_term_key(term) if term else self.get_effective_term(user_id)
+        selected_term = normalize_term_key(term) if term else get_effective_term(user_id)
         classes = data.get("classes_by_term", {}).get(selected_term, [])
         if not classes:
+            logger.info(f"[Command] class table: user={user_id} - No classes found for {selected_term}")
             await interaction.followup.send(
-                f"{selected_term}の登録授業はありません。", ephemeral=True
+                f"{selected_term}の登録授業はありません、E, ephemeral=True
             )
             return
 
@@ -236,7 +217,7 @@ class ClassCog(commands.GroupCog, name="class"):
             except Exception:
                 continue
 
-        header = "限| 月 | 火 | 水 | 木 | 金 | 土 | 日 \n"
+        header = "限| 朁E| 火 | 水 | 木 | 釁E| 圁E| 日 \n"
         line = "--|---|---|---|---|---|---|---\n"
         body = ""
         for p, rows in table.items():
@@ -247,10 +228,10 @@ class ClassCog(commands.GroupCog, name="class"):
         )
 
     @app_commands.command(
-        name="add", description="授業を登録します（曜日, 時限, 科目, 教室）"
+        name="add", description="授業を登録します（曜日, 時限, 科目, 教室�E�E
     )
     @app_commands.describe(
-        weekday="曜日を選択", period="時限を選択", subject="科目名", room="教室"
+        weekday="曜日を選抁E, period="時限を選抁E, subject="科目吁E, room="教室"
     )
     @app_commands.autocomplete(
         weekday=weekday_autocomplete,
@@ -268,8 +249,9 @@ class ClassCog(commands.GroupCog, name="class"):
     ):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
+        logger.info(f"[Command] class add: user={user_id} {weekday} {period}陁E{subject} ({room})")
         data = self.get_data(user_id)
-        term = self.get_effective_term(user_id)
+        term = get_effective_term(user_id)
         data.setdefault("classes_by_term", {}).setdefault(term, [])
         data["classes_by_term"][term] = [
             c
@@ -289,24 +271,26 @@ class ClassCog(commands.GroupCog, name="class"):
             }
         )
         save_user_data(user_id, data)
+        logger.info(f"[Data Change] class add: user={user_id} added class to {term}")
         await send_dm(
             interaction.user,
-            f" 授業を登録しました：{weekday} {period}限 — {subject} ({room})",
+            f" 授業を登録しました�E�{weekday} {period}陁E E{subject} ({room})",
         )
-        await interaction.followup.send("授業をDMで登録しました。", ephemeral=True)
+        await interaction.followup.send("授業をDMで登録しました、E, ephemeral=True)
 
     @app_commands.command(
-        name="remove", description="授業を削除します（曜日＋時限で指定）"
+        name="remove", description="授業を削除します（曜日�E�時限で持E��！E
     )
-    @app_commands.describe(weekday="曜日を選択", period="時限を選択")
+    @app_commands.describe(weekday="曜日を選抁E, period="時限を選抁E)
     @app_commands.autocomplete(weekday=weekday_autocomplete, period=period_autocomplete)
     async def class_remove(
         self, interaction: discord.Interaction, weekday: str, period: str
     ):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
+        logger.info(f"[Command] class remove: user={user_id} {weekday} {period}陁E)
         data = self.get_data(user_id)
-        term = self.get_effective_term(user_id)
+        term = get_effective_term(user_id)
         before = len(data.get("classes_by_term", {}).get(term, []))
         data.setdefault("classes_by_term", {}).setdefault(term, [])
         data["classes_by_term"][term] = [
@@ -319,15 +303,16 @@ class ClassCog(commands.GroupCog, name="class"):
         ]
         save_user_data(user_id, data)
         removed = before - len(data.get("classes_by_term", {}).get(term, []))
+        logger.info(f"[Data Change] class remove: user={user_id} removed {removed} classes from {term}")
         await send_dm(
-            interaction.user, f" {removed}件を削除しました：{weekday} {period}限"
+            interaction.user, f" {removed}件を削除しました�E�{weekday} {period}陁E
         )
-        await interaction.followup.send("削除結果をDMで送信しました。", ephemeral=True)
+        await interaction.followup.send("削除結果をDMで送信しました、E, ephemeral=True)
 
     @app_commands.command(
-        name="list", description="登録授業（曜日・時限順）をDMで送ります"
+        name="list", description="登録授業�E�曜日・時限頁E��をDMで送りまぁE
     )
-    @app_commands.describe(term="対象学期（前期/後期、未指定時は現在の学期）")
+    @app_commands.describe(term="対象学期（前朁E後期、未持E��時は現在の学期！E)
     @app_commands.autocomplete(term=term_autocomplete)
     async def class_list(
         self, interaction: discord.Interaction, term: str | None = None
@@ -340,13 +325,15 @@ class ClassCog(commands.GroupCog, name="class"):
             logger.error(f"Error in defer: {e}")
             return
         user_id = interaction.user.id
+        logger.info(f"[Command] class list: user={user_id} term_arg={term}")
         data = self.get_data(user_id)
-        selected_term = normalize_term_key(term) if term else self.get_effective_term(user_id)
+        selected_term = normalize_term_key(term) if term else get_effective_term(user_id)
         classes = data.get("classes_by_term", {}).get(selected_term, []) or []
         if not classes:
-            await send_dm(interaction.user, f"{selected_term}の登録授業はありません。")
+            logger.info(f"[Command] class list: user={user_id} - No classes found for {selected_term}")
+            await send_dm(interaction.user, f"{selected_term}の登録授業はありません、E)
             await interaction.followup.send(
-                "DMを送信しました（授業なし）。", ephemeral=True
+                "DMを送信しました�E�授業なし）、E, ephemeral=True
             )
             return
 
@@ -379,7 +366,7 @@ class ClassCog(commands.GroupCog, name="class"):
         tbl = ax.table(
             cellText=cell_text,
             colLabels=WEEKDAYS,
-            rowLabels=[f"{p}限" for p in periods_sorted],
+            rowLabels=[f"{p}陁E for p in periods_sorted],
             cellLoc="center",
             loc="center",
         )
@@ -408,21 +395,21 @@ class ClassCog(commands.GroupCog, name="class"):
 
         try:
             await interaction.user.send(
-                content=f"{selected_term}の登録授業一覧です。",
+                content=f"{selected_term}の登録授業一覧です、E,
                 file=discord.File(img_path),
             )
         finally:
             if os.path.exists(img_path):
                 os.remove(img_path)
         await interaction.followup.send(
-            "登録授業一覧をDMで送信しました。", ephemeral=True
+            "登録授業一覧をDMで送信しました、E, ephemeral=True
         )
 
     @app_commands.command(
-        name="setroom", description="特定日の特定授業の教室を変更します"
+        name="setroom", description="特定日の特定授業の教室を変更しまぁE
     )
     @app_commands.describe(
-        date="YYYY-MM-DD", period="変更する時限", new_room="新しい教室名"
+        date="YYYY-MM-DD", period="変更する時限", new_room="新しい教室吁E
     )
     @app_commands.autocomplete(period=period_autocomplete, new_room=room_autocomplete)
     async def class_setroom(
@@ -433,12 +420,12 @@ class ClassCog(commands.GroupCog, name="class"):
             target_date = datetime.strptime(date, "%Y-%m-%d").date()
         except Exception:
             await interaction.followup.send(
-                "日付形式が無効です。YYYY-MM-DD で指定してください。", ephemeral=True
+                "日付形式が無効です、EYYY-MM-DD で持E��してください、E, ephemeral=True
             )
             return
         user_id = interaction.user.id
         data = self.get_data(user_id)
-        term = self.get_effective_term(user_id)
+        term = get_effective_term(user_id)
         target_weekday = target_date.weekday()
         found = False
 
@@ -481,48 +468,49 @@ class ClassCog(commands.GroupCog, name="class"):
 
         if not found:
             await interaction.followup.send(
-                "指定の授業が見つかりませんでした。", ephemeral=True
+                "持E���E授業が見つかりませんでした、E, ephemeral=True
             )
             return
         save_user_data(user_id, data)
         await send_dm(
             interaction.user,
-            f" {date} の {period}限 の教室を {new_room} に変更しました。",
+            f" {date} の {period}陁Eの教室めE{new_room} に変更しました、E,
         )
-        await interaction.followup.send("教室変更をDMに送信しました。", ephemeral=True)
+        await interaction.followup.send("教室変更をDMに送信しました、E, ephemeral=True)
 
     @app_commands.command(
-        name="setday", description="自分の特定日の曜日を変更（全授業に適用）"
+        name="setday", description="自刁E�E特定日の曜日を変更�E��E授業に適用�E�E
     )
-    @app_commands.describe(date="YYYY-MM-DD", new_weekday="変更後の曜日")
+    @app_commands.describe(date="YYYY-MM-DD", new_weekday="変更後�E曜日")
     @app_commands.autocomplete(new_weekday=weekday_autocomplete)
     async def class_setday(
         self, interaction: discord.Interaction, date: str, new_weekday: str
     ):
         await interaction.response.defer(ephemeral=True)
         if new_weekday not in WEEKDAY_MAP:
-            await interaction.followup.send("無効な曜日です。", ephemeral=True)
+            await interaction.followup.send("無効な曜日です、E, ephemeral=True)
             return
         try:
             datetime.strptime(date, "%Y-%m-%d")
         except Exception:
             await interaction.followup.send(
-                "日付形式が無効です。YYYY-MM-DD で指定してください。", ephemeral=True
+                "日付形式が無効です、EYYY-MM-DD で持E��してください、E, ephemeral=True
             )
             return
         user_id = interaction.user.id
         data = self.get_data(user_id)
-        term = self.get_effective_term(user_id)
+        term = get_effective_term(user_id)
         for cls in data.get("classes_by_term", {}).get(term, []):
             cls.setdefault("overrides", {})[date] = WEEKDAY_MAP[new_weekday]
     @app_commands.command(
-        name="status", description="現在のシステム判定上の学期を表示します"
+        name="status", description="現在のシスチE��判定上�E学期を表示しまぁE
     )
     async def class_status(self, interaction: discord.Interaction):
         user_id = interaction.user.id
-        term = self.get_effective_term(user_id)
+        logger.info(f"[Command] class status: user={user_id}")
+        term = get_effective_term(user_id)
         
-        # 判定プロセスの可視化
+        # 判定�Eロセスの可視化
         data = self.get_data(user_id)
         settings = data.get("settings", {})
         month = datetime.now().month
@@ -530,41 +518,43 @@ class ClassCog(commands.GroupCog, name="class"):
         detail = ""
         term_settings = settings.get(term, {})
         if term_settings.get("start_date") and term_settings.get("end_date"):
-            detail = f"（Web設定の期間内: {term_settings['start_date']} 〜 {term_settings['end_date']}）"
+            detail = f"�E�Eeb設定�E期間冁E {term_settings['start_date']} 、E{term_settings['end_date']}�E�E
         else:
-            detail = f"（月による判定: {month}月）"
+            detail = f"�E�月による判宁E {month}月！E
 
+        logger.info(f"[Command] class status: user={user_id} -> result={term}")
         await interaction.response.send_message(
-            f"現在は **{term}** です。{detail}", ephemeral=True
+            f"現在は **{term}** です、Edetail}", ephemeral=True
         )
 
     @app_commands.command(
-        name="today", description="今日の授業スケジュールを一覧表示します"
+        name="today", description="今日の授業スケジュールを一覧表示しまぁE
     )
     async def class_today(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
+        logger.info(f"[Command] class today: user={user_id}")
         data = self.get_data(user_id)
-        term = self.get_effective_term(user_id)
+        term = get_effective_term(user_id)
         now = datetime.now()
         date_str = now.strftime("%Y-%m-%d")
         day_idx = now.weekday()  # 0=Mon, 6=Sun
         day_name = WEEKDAYS[day_idx]
 
-        # 登録授業の取得
+        # 登録授業の取征E
         all_classes = data.get("classes_by_term", {}).get(term, []) or []
         today_classes = []
 
         for cls in all_classes:
-            # 振替設定の確認
+            # 振替設定�E確誁E
             effective_day = cls.get("day")
             overrides = cls.get("overrides") or {}
             if date_str in overrides:
                 effective_day = overrides[date_str]
             
             if effective_day == day_idx:
-                # 教室の個別変更確認
-                room = cls.get("room", "未設定")
+                # 教室の個別変更確誁E
+                room = cls.get("room", "未設宁E)
                 room_overrides = cls.get("room_overrides") or {}
                 if date_str in room_overrides:
                     room = room_overrides[date_str]
@@ -573,24 +563,25 @@ class ClassCog(commands.GroupCog, name="class"):
                     "period": cls.get("period"),
                     "subject": cls.get("subject"),
                     "room": room,
-                    "time": cls.get("time", "不明")
+                    "time": cls.get("time", "不�E")
                 })
 
-        # 時限順にソート
+        # 時限頁E��ソーチE
         today_classes.sort(key=lambda x: int(x["period"]) if str(x["period"]).isdigit() else 99)
 
         if not today_classes:
             await interaction.followup.send(
-                f"本日（{date_str} {day_name}）の登録授業はありません。", ephemeral=True
+                f"本日�E�Edate_str} {day_name}�E��E登録授業はありません、E, ephemeral=True
             )
             return
 
-        msg = f"📅 **本日（{date_str} {day_name}）の授業一覧**\n"
+        msg = f"📅 **本日�E�Edate_str} {day_name}�E��E授業一覧**\n"
         msg += "--------------------------------------\n"
         for c in today_classes:
-            msg += f"**{c['period']}限** ({c['time']}) : {c['subject']}\n"
+            msg += f"**{c['period']}陁E* ({c['time']}) : {c['subject']}\n"
             msg += f"   📍 教室: {c['room']}\n"
         
+        logger.info(f"[Command] class today: user={user_id} - found {len(today_classes)} classes")
         await interaction.followup.send(msg, ephemeral=True)
 
 
