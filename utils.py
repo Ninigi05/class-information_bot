@@ -72,7 +72,7 @@ def get_effective_term(user_id: int) -> str:
                 logger.info(f"[Term Detection] User={user_id} detected as '{term}' (Setting-based: {start} to {end})")
                 return term
     
-    term = get_current_term()
+    term = get_current_term_orig()
     logger.info(f"[Term Detection] User={user_id} detected as '{term}' (Month-based fallback)")
     return term
 
