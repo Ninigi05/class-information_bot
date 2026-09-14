@@ -492,6 +492,72 @@ class ClassCog(commands.GroupCog, name="class"):
         term = get_current_term()
         for cls in data.get("classes_by_term", {}).get(term, []):
             cls.setdefault("overrides", {})[date] = WEEKDAY_MAP[new_weekday]
+    @app_commands.command(
+        name="status", description="現在のシステム判定上の学期を表示します"
+    )
+    async def class_status(self, interaction: discord.Interaction):
+        term = get_current_term()
+        month = datetime.now().month
+        await interaction.response.send_message(
+            f"現在は **{term}** です。（判定基準月: {month}月）", ephemeral=True
+        )
+
+    @app_commands.command(
+        name="today", description="今日の授業スケジュールを一覧表示します"
+    )
+    async def class_today(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        user_id = interaction.user.id
+        data = self.get_data(user_id)
+        term = get_current_term()
+        now = datetime.now()
+        date_str = now.strftime("%Y-%m-%d")
+        day_idx = now.weekday()  # 0=Mon, 6=Sun
+        day_name = WEEKDAYS[day_idx]
+
+        # 登録授業の取得
+        all_classes = data.get("classes_by_term", {}).get(term, []) or []
+        today_classes = []
+
+        for cls in all_classes:
+            # 振替設定の確認
+            effective_day = cls.get("day")
+            overrides = cls.get("overrides") or {}
+            if date_str in overrides:
+                effective_day = overrides[date_str]
+            
+            if effective_day == day_idx:
+                # 教室の個別変更確認
+                room = cls.get("room", "未設定")
+                room_overrides = cls.get("room_overrides") or {}
+                if date_str in room_overrides:
+                    room = room_overrides[date_str]
+                
+                today_classes.append({
+                    "period": cls.get("period"),
+                    "subject": cls.get("subject"),
+                    "room": room,
+                    "time": cls.get("time", "不明")
+                })
+
+        # 時限順にソート
+        today_classes.sort(key=lambda x: int(x["period"]) if str(x["period"]).isdigit() else 99)
+
+        if not today_classes:
+            await interaction.followup.send(
+                f"本日（{date_str} {day_name}）の登録授業はありません。", ephemeral=True
+            )
+            return
+
+        msg = f"📅 **本日（{date_str} {day_name}）の授業一覧**\n"
+        msg += "--------------------------------------\n"
+        for c in today_classes:
+            msg += f"**{c['period']}限** ({c['time']}) : {c['subject']}\n"
+            msg += f"   📍 教室: {c['room']}\n"
+        
+        await interaction.followup.send(msg, ephemeral=True)
+
+
         save_user_data(user_id, data)
         await send_dm(
             interaction.user,
