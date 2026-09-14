@@ -594,13 +594,5 @@ class ClassCog(commands.GroupCog, name="class"):
         await interaction.followup.send(msg, ephemeral=True)
 
 
-        save_user_data(user_id, data)
-        await send_dm(
-            interaction.user,
-            f" {date} の曜日を {new_weekday} に変更しました（登録授業すべてに適用）。",
-        )
-        await interaction.followup.send("曜日変更をDMで送信しました。", ephemeral=True)
-
-
 async def setup(bot: commands.Bot):
     await bot.add_cog(ClassCog(bot))
