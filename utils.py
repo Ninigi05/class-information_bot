@@ -34,9 +34,10 @@ TERM_ALIASES = {
     "後期": TERM_SECOND,
 }
 
-# Use current month to determine academic term (前期: April-September, 後期: October-March)
-from datetime import datetime
-
+def get_current_term_orig() -> str:
+    """Return "前期" or "後期" based on current month."""
+    month = datetime.now().month
+    return TERM_FIRST if 4 <= month <= 9 else TERM_SECOND
 
 
 def get_current_term(user_id: int | None = None) -> str:
@@ -44,42 +45,7 @@ def get_current_term(user_id: int | None = None) -> str:
         return get_effective_term(user_id)
     return get_current_term_orig()
 
-
-def get_current_term_orig() -> str:
-    """Return "前期" or "後期" based on current month."""
-    month = datetime.now().month
-    return TERM_FIRST if 4 <= month <= 9 else TERM_SECOND
-
-
-def get_effective_term(user_id: int) -> str:
-    """
-    ユーザー設定の開始日・終了日を考慮して、現在の学期を判定する。
-    設定がない場合は従来の get_current_term_orig() (月判定) にフォールバックする。
-    """
-    data = load_user_data(user_id)
-    settings = data.get("settings", {})
-    now_date = datetime.now().strftime("%Y-%m-%d")
-
-    for term in ["前期", "後期"]:
-        term_settings = settings.get(term, {})
-        start = term_settings.get("start_date")
-        end = term_settings.get("end_date")
-        if start and end:
-            if start <= now_date <= end:
-                logger.info(f"[Term Detection] User={user_id} detected as '{term}' (Setting-based: {start} to {end})")
-                return term
-    
-    term = get_current_term_orig()
-    logger.info(f"[Term Detection] User={user_id} detected as '{term}' (Month-based fallback)")
-    return term
-
-def get_current_term_orig() -> str:
-    """Return "前期" or "後期" based on current month."""
-    month = datetime.now().month
-    return TERM_FIRST if 4 <= month <= 9 else TERM_SECOND
-
-
-def get_current_term(user_id: int | None = None) -> str:\r\n    if user_id is not None:\r\n        return get_effective_term(user_id)\r\n    return get_current_term_orig()\r\n\r\ndef normalize_term_key(term: str | None) -> str:
+def normalize_term_key(term: str | None) -> str:
     """Normalize term labels to canonical Japanese keys."""
     key = str(term or "").strip().lower()
     if not key:
