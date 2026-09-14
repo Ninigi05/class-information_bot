@@ -47,6 +47,28 @@ class ClassCog(commands.GroupCog, name="class"):
                 "data": load_user_data(user_id),
             }
         return self.user_cache[user_id]["data"]
+    def get_effective_term(self, user_id: int) -> str:
+        """
+        ユーザー設定の開始日・終了日を考慮して、現在の学期を判定する。
+        設定がない場合は従来の get_current_term() (月判定) にフォールバックする。
+        """
+        data = self.get_data(user_id)
+        settings = data.get("settings", {})
+        now_date = datetime.now().strftime("%Y-%m-%d")
+
+        # 設定されている学期の開始日・終了日をチェック
+        for term in ["前期", "後期"]:
+            term_settings = settings.get(term, {})
+            start = term_settings.get("start_date")
+            end = term_settings.get("end_date")
+            if start and end:
+                if start <= now_date <= end:
+                    return term
+        
+        # 設定に当てはまらない、または設定がない場合は月で判定
+        return get_current_term()
+
+
 
     async def weekday_autocomplete(
         self, interaction: discord.Interaction, current: str
@@ -69,7 +91,7 @@ class ClassCog(commands.GroupCog, name="class"):
     ):
         user_id = interaction.user.id
         data = self.get_data(user_id)
-        term = get_current_term()
+        term = self.get_effective_term(user_id)
         subjects = []
         for c in data.get("classes_by_term", {}).get(term, []) or []:
             s = str(c.get("subject", "")).strip()
@@ -98,7 +120,7 @@ class ClassCog(commands.GroupCog, name="class"):
     async def room_autocomplete(self, interaction: discord.Interaction, current: str):
         user_id = interaction.user.id
         data = self.get_data(user_id)
-        term = get_current_term()
+        term = self.get_effective_term(user_id)
         rooms = []
         for c in data.get("classes_by_term", {}).get(term, []) or []:
             r = str(c.get("room", "")).strip()
@@ -194,8 +216,9 @@ class ClassCog(commands.GroupCog, name="class"):
         self, interaction: discord.Interaction, term: str | None = None
     ):
         await interaction.response.defer(ephemeral=True)
-        data = self.get_data(interaction.user.id)
-        selected_term = normalize_term_key(term) if term else get_current_term()
+        user_id = interaction.user.id
+        data = self.get_data(user_id)
+        selected_term = normalize_term_key(term) if term else self.get_effective_term(user_id)
         classes = data.get("classes_by_term", {}).get(selected_term, [])
         if not classes:
             await interaction.followup.send(
@@ -246,7 +269,7 @@ class ClassCog(commands.GroupCog, name="class"):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
         data = self.get_data(user_id)
-        term = get_current_term()
+        term = self.get_effective_term(user_id)
         data.setdefault("classes_by_term", {}).setdefault(term, [])
         data["classes_by_term"][term] = [
             c
@@ -283,7 +306,7 @@ class ClassCog(commands.GroupCog, name="class"):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
         data = self.get_data(user_id)
-        term = get_current_term()
+        term = self.get_effective_term(user_id)
         before = len(data.get("classes_by_term", {}).get(term, []))
         data.setdefault("classes_by_term", {}).setdefault(term, [])
         data["classes_by_term"][term] = [
@@ -318,7 +341,7 @@ class ClassCog(commands.GroupCog, name="class"):
             return
         user_id = interaction.user.id
         data = self.get_data(user_id)
-        selected_term = normalize_term_key(term) if term else get_current_term()
+        selected_term = normalize_term_key(term) if term else self.get_effective_term(user_id)
         classes = data.get("classes_by_term", {}).get(selected_term, []) or []
         if not classes:
             await send_dm(interaction.user, f"{selected_term}の登録授業はありません。")
@@ -415,7 +438,7 @@ class ClassCog(commands.GroupCog, name="class"):
             return
         user_id = interaction.user.id
         data = self.get_data(user_id)
-        term = get_current_term()
+        term = self.get_effective_term(user_id)
         target_weekday = target_date.weekday()
         found = False
 
@@ -489,17 +512,30 @@ class ClassCog(commands.GroupCog, name="class"):
             return
         user_id = interaction.user.id
         data = self.get_data(user_id)
-        term = get_current_term()
+        term = self.get_effective_term(user_id)
         for cls in data.get("classes_by_term", {}).get(term, []):
             cls.setdefault("overrides", {})[date] = WEEKDAY_MAP[new_weekday]
     @app_commands.command(
         name="status", description="現在のシステム判定上の学期を表示します"
     )
     async def class_status(self, interaction: discord.Interaction):
-        term = get_current_term()
+        user_id = interaction.user.id
+        term = self.get_effective_term(user_id)
+        
+        # 判定プロセスの可視化
+        data = self.get_data(user_id)
+        settings = data.get("settings", {})
         month = datetime.now().month
+        
+        detail = ""
+        term_settings = settings.get(term, {})
+        if term_settings.get("start_date") and term_settings.get("end_date"):
+            detail = f"（Web設定の期間内: {term_settings['start_date']} 〜 {term_settings['end_date']}）"
+        else:
+            detail = f"（月による判定: {month}月）"
+
         await interaction.response.send_message(
-            f"現在は **{term}** です。（判定基準月: {month}月）", ephemeral=True
+            f"現在は **{term}** です。{detail}", ephemeral=True
         )
 
     @app_commands.command(
@@ -509,7 +545,7 @@ class ClassCog(commands.GroupCog, name="class"):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
         data = self.get_data(user_id)
-        term = get_current_term()
+        term = self.get_effective_term(user_id)
         now = datetime.now()
         date_str = now.strftime("%Y-%m-%d")
         day_idx = now.weekday()  # 0=Mon, 6=Sun
