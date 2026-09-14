@@ -193,11 +193,12 @@ class ClassCog(commands.GroupCog, name="class"):
     async def class_table(
         self, interaction: discord.Interaction, term: str | None = None
     ):
+        await interaction.response.defer(ephemeral=True)
         data = self.get_data(interaction.user.id)
         selected_term = normalize_term_key(term) if term else get_current_term()
         classes = data.get("classes_by_term", {}).get(selected_term, [])
         if not classes:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"{selected_term}の登録授業はありません。", ephemeral=True
             )
             return
@@ -218,7 +219,7 @@ class ClassCog(commands.GroupCog, name="class"):
         for p, rows in table.items():
             body += f"{p} |" + "|".join(rows) + "\n"
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"{selected_term} の時間割\n```\n{header}{line}{body}```", ephemeral=True
         )
 
@@ -308,7 +309,13 @@ class ClassCog(commands.GroupCog, name="class"):
     async def class_list(
         self, interaction: discord.Interaction, term: str | None = None
     ):
-        await interaction.response.defer(ephemeral=True)
+        try:
+            await interaction.response.defer(ephemeral=True)
+        except discord.errors.InteractionResponded:
+            pass
+        except Exception as e:
+            logger.error(f"Error in defer: {e}")
+            return
         user_id = interaction.user.id
         data = self.get_data(user_id)
         selected_term = normalize_term_key(term) if term else get_current_term()
