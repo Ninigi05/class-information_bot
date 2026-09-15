@@ -65,13 +65,13 @@ def get_effective_term(user_id: int) -> str:
     from datetime import datetime
 
     data = load_user_data(user_id)
-    settings = data.get("settings", {})
+    term_ranges = data.get("term_ranges", {}) or {}
     now_date = datetime.now().strftime("%Y-%m-%d")
 
     for term in ["前期", "後期"]:
-        term_settings = settings.get(term, {})
-        start = term_settings.get("start_date")
-        end = term_settings.get("end_date")
+        term_range = term_ranges.get(term, {})
+        start = term_range.get("start")
+        end = term_range.get("end")
         if start and end:
             if start <= now_date <= end:
                 logger.info(

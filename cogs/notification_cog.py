@@ -118,7 +118,7 @@ class NotificationCog(commands.Cog):
                 if not data:
                     continue
 
-                term = get_current_term()
+                term = get_current_term(user_id)
                 term_ranges = data.get("term_ranges", {}) or {}
                 term_range = term_ranges.get(term)
                 if term_range:
@@ -126,7 +126,19 @@ class NotificationCog(commands.Cog):
                         s_dt = datetime.fromisoformat(term_range["start"]).date()
                         e_dt = datetime.fromisoformat(term_range["end"]).date()
                         if not (s_dt <= now.date() <= e_dt):
-                            continue  # 通知期間外
+                            # もし現在の学期設定の期間外であれば、もう一方の学期も確認してみる
+                            other_term = TERM_SECOND if term == TERM_FIRST else TERM_FIRST
+                            other_range = term_ranges.get(other_term)
+                            if other_range:
+                                os_dt = datetime.fromisoformat(other_range["start"]).date()
+                                oe_dt = datetime.fromisoformat(other_range["end"]).date()
+                                if os_dt <= now.date() <= oe_dt:
+                                    term = other_term
+                                    term_range = other_range
+                                else:
+                                    continue
+                            else:
+                                continue
                     except Exception:
                         pass
 
