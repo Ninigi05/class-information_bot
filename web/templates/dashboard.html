@@ -37,14 +37,17 @@
 
     <!-- メイン時間割テーブル -->
     <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7 space-y-4">
-      <h2 class="text-lg font-bold flex items-center gap-2">
-        <span>📅 通常時間割</span>
-        <span id="loading-spinner" class="animate-spin rounded-full h-4 w-4 border-2 border-t-blue-600 border-r-transparent border-b-blue-600 border-l-transparent hidden"></span>
-      </h2>
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-bold flex items-center gap-2">
+          <span>📅 通常時間割</span>
+          <span id="loading-spinner" class="animate-spin rounded-full h-4 w-4 border-2 border-t-blue-600 border-r-transparent border-b-blue-600 border-l-transparent hidden"></span>
+        </h2>
+        <button type="button" id="saveTimetableBtn" class="px-4 py-2 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700 text-sm">時間割を保存する</button>
+      </div>
       <div class="overflow-x-auto">
         <table id="timetable" class="min-w-full border border-slate-300"></table>
       </div>
-      <p class="text-xs text-slate-500">セルクリックで授業追加/編集。変更は自動的にサーバーへ保存されます。</p>
+      <p class="text-xs text-slate-500">セルクリックで授業追加/編集。保存ボタンを押してサーバーへ保存します。</p>
     </section>
 
     <!-- 通知・学期設定 -->
@@ -92,7 +95,10 @@
 
     <!-- 時間割の上書き設定 -->
     <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7 space-y-4">
-      <h2 class="text-lg font-bold">🕒 時間割の上書き設定</h2>
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-bold">🕒 時間割の上書き設定</h2>
+        <button type="button" id="saveOverridesBtn" class="px-4 py-2 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700 text-sm">上書き設定を保存する</button>
+      </div>
       <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
         <label class="block"><span class="text-sm font-semibold">曜日変更 日付</span><input id="ovDayDate" type="date" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border" /></label>
         <label class="block"><span class="text-sm font-semibold">変更先曜日</span><select id="ovDayWeekday" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border"></select></label>
@@ -113,7 +119,10 @@
 
     <!-- Gmail休講認証（Web） -->
     <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7 space-y-4">
-      <h2 class="text-lg font-bold">✉️ Gmail休講認証（Web）</h2>
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-bold">✉️ Gmail休講認証（Web）</h2>
+        <button type="button" id="saveGmailBtn" class="px-4 py-2 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700 text-sm">Gmail認証を保存する</button>
+      </div>
       <div class="flex flex-wrap gap-2">
         <button type="button" id="openGmailAuth" class="px-4 py-2 rounded bg-amber-600 text-white font-bold hover:bg-amber-700">認証URLを取得</button>
         <a id="gmailAuthUrl" href="#" target="_blank" rel="noopener" class="hidden px-4 py-2 rounded bg-amber-100 text-amber-900 font-semibold border border-amber-300">Gmail認証ページを開く</a>
@@ -203,7 +212,9 @@
       normalFirst: document.getElementById("normalFirst"),
       normalSecond: document.getElementById("normalSecond"),
       morningTime: document.getElementById("morningTime"),
-      saveSettingsBtn: document.getElementById("saveSettingsBtn"),
+      saveTimetableBtn: document.getElementById("saveTimetableBtn"),
+      saveOverridesBtn: document.getElementById("saveOverridesBtn"),
+      saveGmailBtn: document.getElementById("saveGmailBtn"),
       termStartLabel: document.getElementById("termStartLabel"),
       termEndLabel: document.getElementById("termEndLabel"),
       termStartDate: document.getElementById("termStartDate"),
@@ -467,6 +478,34 @@
       }
     }
 
+    async function saveTimetable() {
+      try {
+        draft.classes_by_term[currentTerm] = getClassesFromTimetable();
+        persist();
+        alert("通常時間割を保存しました。");
+      } catch (e) {
+        alert("時間割の保存に失敗しました。");
+      }
+    }
+
+    async function saveOverrides() {
+      try {
+        persist();
+        alert("上書き設定を保存しました。");
+      } catch (e) {
+        alert("上書き設定の保存に失敗しました。");
+      }
+    }
+
+    async function saveGmailSettings() {
+      try {
+        draft.gmail_auth_code = (el.gmailAuthCode.value || "").trim();
+        persist();
+        alert("Gmail認証設定を保存しました。");
+      } catch (e) {
+        alert("Gmail認証設定の保存に失敗しました。");
+      }
+    }
     async function handleDelete() {
       if (!editing || !editing.isEdit) return;
       if (!confirm("本当にこの授業を削除しますか？")) return;
@@ -694,6 +733,10 @@
         alert(e.message || "Gmail認証URL取得失敗");
       }
     });
+
+    el.saveTimetableBtn.addEventListener("click", saveTimetable);
+    el.saveOverridesBtn.addEventListener("click", saveOverrides);
+    el.saveGmailBtn.addEventListener("click", saveGmailSettings);
 
     el.saveSettingsBtn.addEventListener("click", saveSettings);
     el.issueKeyClasses.addEventListener("click", async () => runIssue("classes"));
