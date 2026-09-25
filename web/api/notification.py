@@ -24,7 +24,12 @@ def set_discord_bot(bot):
 def get_discord_bot():
     """
     登録されている Discord Bot インスタンスを取得します
+    builtins から最優先で取得し、フォールバックとしてローカル変数を使用します
     """
+    import builtins
+    builtins_bot = getattr(builtins, "_discord_bot", None)
+    if builtins_bot is not None:
+        return builtins_bot
     return _bot_instance
 
 

@@ -1224,6 +1224,11 @@ async def setup_hook():
     _discord_bot_instance = bot
     logger.info("[Bot] グローバルbotインスタンスが設定されました。")
     
+    # builtinsにグローバル登録 (スレッド/インポート境界を越えた共有用)
+    import builtins
+    builtins._discord_bot = bot
+    logger.info("[Bot] builtins にBotインスタンスを登録しました。")
+    
     # DM通知モジュールにもBotインスタンスを登録
     try:
         from web.api.notification import set_discord_bot
