@@ -23,6 +23,7 @@ from web.schemas import (
     ListResponse,
     SuccessResponse,
 )
+from web.api.notification import notify_user_change
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/classes", tags=["classes"])
@@ -119,6 +120,17 @@ async def add_class(
         # データを保存
         save_user_data(user_id, user_data)
 
+        # DM通知を送信
+        msg = (
+            f"通常時間割に新しい授業を登録しました。\n\n"
+            f"・学期: {selected_term}\n"
+            f"・曜日: {class_data.weekday}\n"
+            f"・時限: {class_data.period}限\n"
+            f"・科目名: {class_data.subject}\n"
+            f"・教室: {class_data.room}"
+        )
+        await notify_user_change(user_id, msg)
+
         return SuccessResponse(
             message="授業を登録しました",
             data={"class": new_class},
@@ -179,6 +191,13 @@ async def update_class(
                 detail="授業が見つかりません",
             )
 
+        # 変更前の状態を退避
+        old_day = target_class.get("day")
+        old_weekday = WEEKDAYS[old_day] if (old_day is not None and old_day < len(WEEKDAYS)) else weekday
+        old_period = target_class.get("period", period)
+        old_subject = target_class.get("subject", "未登録")
+        old_room = target_class.get("room", "未登録")
+
         # 更新
         if update_data.weekday is not None:
             if update_data.weekday not in WEEKDAY_MAP:
@@ -204,6 +223,24 @@ async def update_class(
 
         # データを保存
         save_user_data(user_id, user_data)
+
+        # DM通知を送信
+        new_day = target_class.get("day")
+        new_weekday = WEEKDAYS[new_day] if (new_day is not None and new_day < len(WEEKDAYS)) else old_weekday
+        new_period = target_class.get("period", old_period)
+
+        time_change_str = f"{old_weekday} {old_period}限"
+        if old_weekday != new_weekday or old_period != new_period:
+            time_change_str += f" ➔ {new_weekday} {new_period}限"
+
+        msg = (
+            f"通常時間割の授業設定を更新しました。\n\n"
+            f"・学期: {selected_term}\n"
+            f"・日時: {time_change_str}\n"
+            f"・科目名: {old_subject} ➔ {target_class['subject']}\n"
+            f"・教室: {old_room} ➔ {target_class['room']}"
+        )
+        await notify_user_change(user_id, msg)
 
         return SuccessResponse(
             message="授業を更新しました",
@@ -252,9 +289,10 @@ async def delete_class(
 
         # 対象の授業を探して削除
         found = False
+        deleted_class_info = None
         for i, cls in enumerate(classes):
             if cls.get("day") == day and cls.get("period") == period:
-                classes.pop(i)
+                deleted_class_info = classes.pop(i)
                 found = True
                 break
 
@@ -265,6 +303,17 @@ async def delete_class(
             )
 
         save_user_data(user_id, user_data)
+
+        # DM通知を送信
+        msg = (
+            f"通常時間割から授業を削除しました。\n\n"
+            f"・学期: {selected_term}\n"
+            f"・曜日: {weekday}\n"
+            f"・時限: {period}限\n"
+            f"・科目名: {deleted_class_info.get('subject', '不明')}\n"
+            f"・教室: {deleted_class_info.get('room', '不明')}"
+        )
+        await notify_user_change(user_id, msg)
 
         return SuccessResponse(
             message="授業を削除しました",

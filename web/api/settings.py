@@ -23,6 +23,7 @@ from web.schemas import (
     SuccessResponse,
     NotifySettingsUpdate,
 )
+from web.api.notification import notify_user_change
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -107,10 +108,22 @@ async def update_period_time(
         
         user_id = current_user.user_id
         data = load_user_data(user_id)
+        
+        # 変更前の値を取得
+        old_time = data.get("period_overrides", {}).get(period_data.period) or PERIOD_TO_TIME.get(period_data.period, "未設定")
+        
         data.setdefault("period_overrides", {})[period_data.period] = period_data.time
         save_user_data(user_id, data)
         
         logger.info(f"時限設定更新: user_id={user_id} period={period_data.period} time={period_data.time}")
+        
+        # DM通知を送信
+        msg = (
+            f"時限の開始時刻設定を更新しました。\n\n"
+            f"・対象時限: {period_data.period}限\n"
+            f"・開始時刻: {old_time} ➔ {period_data.time}"
+        )
+        await notify_user_change(user_id, msg)
         
         return SuccessResponse(message=f"{period_data.period}限の開始時刻を {period_data.time} に設定しました", data=None)
     except HTTPException:
@@ -141,6 +154,10 @@ async def update_notify_settings(
         user_id = current_user.user_id
         data = load_user_data(user_id)
         
+        # 変更前の設定を取得
+        old_notify = data.get("notify_settings", {}).get("normal", {"first": 15, "second": 10}).copy()
+        old_morning = data.get("morning_notice_time", "08:00")
+        
         if notify_data.notify:
             n = notify_data.notify
             user_notify = data.setdefault("notify_settings", {})
@@ -160,6 +177,18 @@ async def update_notify_settings(
         
         save_user_data(user_id, data)
         logger.info(f"通知設定更新: user_id={user_id}")
+        
+        # DM通知を送信
+        new_notify = data.get("notify_settings", {}).get("normal", {})
+        new_morning = data.get("morning_notice_time", "08:00")
+        msg = (
+            f"通知タイミング設定を更新しました。\n\n"
+            f"■ 変更後の設定:\n"
+            f"・1回目の通常通知: {new_notify.get('first')}分前 (変更前: {old_notify.get('first')}分前)\n"
+            f"・2回目の通常通知: {new_notify.get('second')}分前 (変更前: {old_notify.get('second')}分前)\n"
+            f"・朝の通知時刻: {new_morning} (変更前: {old_morning})"
+        )
+        await notify_user_change(user_id, msg)
         
         return SuccessResponse(message="通知設定を更新しました", data=None)
     except Exception as e:
@@ -195,6 +224,13 @@ async def update_term_settings(
         
         user_id = current_user.user_id
         data = load_user_data(user_id)
+        
+        # 変更前のデータを保持
+        old_starts = data.get("term_start_dates", {}).get(term, "未設定")
+        old_ranges = data.get("term_ranges", {}).get(term, {})
+        old_start = old_ranges.get("start") or old_starts
+        old_end = old_ranges.get("end", "未設定")
+        old_count = data.get("class_count_targets", {}).get(term, "未設定")
         
         # 期間設定（開始日・終了日）
         if term_data.start_date or term_data.end_date:
@@ -238,6 +274,22 @@ async def update_term_settings(
         save_user_data(user_id, data)
         
         logger.info(f"学期設定更新: user_id={user_id} term={term} start_date={term_data.start_date} class_count={term_data.class_count}")
+        
+        # 変更後のデータ
+        new_ranges = data.get("term_ranges", {}).get(term, {})
+        new_start = new_ranges.get("start") or data.get("term_start_dates", {}).get(term, "未設定")
+        new_end = new_ranges.get("end", "未設定")
+        new_count = data.get("class_count_targets", {}).get(term, "未設定")
+        
+        # DM通知を送信
+        msg = (
+            f"学期設定（{term_data.term}）を更新しました。\n\n"
+            f"■ 変更後の設定:\n"
+            f"・開始日: {new_start} (変更前: {old_start})\n"
+            f"・終了日: {new_end} (変更前: {old_end})\n"
+            f"・目標授業回数: {new_count}回 (変更前: {old_count}回)"
+        )
+        await notify_user_change(user_id, msg)
         
         return SuccessResponse(message=f"{term}の設定を更新しました", data=None)
     except HTTPException:
