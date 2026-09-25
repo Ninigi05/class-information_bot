@@ -23,6 +23,7 @@ from web.schemas import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["makeup", "cancel"])
+from web.api.notification import notify_user_change
 
 
 # ============ 補講（Makeup）エンドポイント ============
@@ -99,6 +100,17 @@ async def add_makeup_class(
         makeup_classes.append(new_makeup)
         save_user_data(user_id, user_data)
 
+        # DM通知を送信
+        msg = (
+            f"時間割の上書き（補講）を登録しました。\n\n"
+            f"・学期: {selected_term}\n"
+            f"・日付: {makeup_data.date}\n"
+            f"・時限/時刻: {makeup_data.time}\n"
+            f"・科目名: {makeup_data.subject}\n"
+            f"・教室: {makeup_data.room}"
+        )
+        await notify_user_change(user_id, msg)
+
         return SuccessResponse(
             message="追加しました",
             data={"makeup": new_makeup},
@@ -138,9 +150,10 @@ async def delete_makeup_class(
         )
 
         found = False
+        deleted_makeup_info = None
         for i, mc in enumerate(makeup_classes):
             if mc.get("date") == date and mc.get("time") == time:
-                makeup_classes.pop(i)
+                deleted_makeup_info = makeup_classes.pop(i)
                 found = True
                 break
 
@@ -152,6 +165,17 @@ async def delete_makeup_class(
 
         user_data["makeup_classes_by_term"][selected_term] = makeup_classes
         save_user_data(user_id, user_data)
+
+        # DM通知を送信
+        msg = (
+            f"時間割の上書き（補講）を削除しました。\n\n"
+            f"・学期: {selected_term}\n"
+            f"・日付: {date}\n"
+            f"・時限/時刻: {time}\n"
+            f"・科目名: {deleted_makeup_info.get('subject', '不明')}\n"
+            f"・教室: {deleted_makeup_info.get('room', '不明')}"
+        )
+        await notify_user_change(user_id, msg)
 
         return SuccessResponse(
             message="補講を削除しました",
@@ -239,6 +263,15 @@ async def add_cancel_class(
         cancel_classes.append(new_cancel)
         save_user_data(user_id, user_data)
 
+        # DM通知を送信
+        msg = (
+            f"時間割の上書き（休講）を登録しました。\n\n"
+            f"・学期: {selected_term}\n"
+            f"・日付: {cancel_data.date}\n"
+            f"・科目名: {cancel_data.subject}"
+        )
+        await notify_user_change(user_id, msg)
+
         return SuccessResponse(
             message="休講を追加しました",
             data={"cancel": new_cancel},
@@ -279,9 +312,10 @@ async def delete_cancel_class(
         )
 
         found = False
+        deleted_cancel_info = None
         for i, cc in enumerate(cancel_classes):
             if cc.get("date") == date and cc.get("subject") == subject:
-                cancel_classes.pop(i)
+                deleted_cancel_info = cancel_classes.pop(i)
                 found = True
                 break
 
@@ -293,6 +327,15 @@ async def delete_cancel_class(
 
         user_data["cancel_classes_by_term"][selected_term] = cancel_classes
         save_user_data(user_id, user_data)
+
+        # DM通知を送信
+        msg = (
+            f"時間割の上書き（休講）を削除しました。\n\n"
+            f"・学期: {selected_term}\n"
+            f"・日付: {date}\n"
+            f"・科目名: {deleted_cancel_info.get('subject', '不明')}"
+        )
+        await notify_user_change(user_id, msg)
 
         return SuccessResponse(
             message="休講を削除しました",

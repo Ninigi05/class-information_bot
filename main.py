@@ -844,14 +844,69 @@ async def web_applykey(interaction: discord.Interaction, key: str):
         if gmail_code:
             gmail_ok = await _apply_gmail_auth_code_from_web(user_id, gmail_code)
 
+        # メッセージ行の詳細構築
         lines = [
-            "Web登録データを反映しました。",
-            f"- 反映対象: {feature_names.get(feature, feature)} ({term})",
-            f"- 授業数: {len(user_data.get('classes_by_term', {}).get(term, []))}",
-            f"- 試験時間割数: {len(user_data.get('exam_schedules_by_term', {}).get(term, []))}",
-            f"- Gmail認証反映: {'成功' if gmail_ok else ('未実施' if not gmail_code else '失敗')}",
+            "【Webダッシュボード通知】",
+            "Webダッシュボードからデータを反映しました。\n",
+            f"■ 反映対象: {feature_names.get(feature, feature)} ({term})\n",
         ]
-        await send_dm(interaction.user, "\n".join(lines))
+
+        # 1. 通常時間割 (Classes)
+        if feature in ["all", "classes"]:
+            classes = user_data.get("classes_by_term", {}).get(term, [])
+            lines.append("【通常時間割 反映内容】")
+            if classes:
+                for cls in classes:
+                    day_name = WEEKDAYS[cls['day']] if isinstance(cls.get('day'), int) and 0 <= cls['day'] < len(WEEKDAYS) else "不明"
+                    lines.append(f"・{day_name} {cls.get('period')}限: {cls.get('subject')} ({cls.get('room')})")
+            else:
+                lines.append("・登録されている授業はありません。")
+            lines.append("")
+
+        # 2. 上書き設定 (Overrides)
+        if feature in ["all", "overrides"]:
+            day_ov = payload.get("day_overrides") or []
+            room_ov = payload.get("room_overrides") or []
+            lines.append("【時間割上書き設定 反映内容】")
+            if day_ov or room_ov:
+                if day_ov:
+                    lines.append("■ 日付上書き（休講・授業変更など）:")
+                    for d in day_ov:
+                        lines.append(f"  ・{d.get('date')}: {d.get('weekday')}時間割")
+                if room_ov:
+                    lines.append("■ 教室上書き:")
+                    for r in room_ov:
+                        lines.append(f"  ・{r.get('date')} {r.get('period')}限: ➔ {r.get('room')}")
+            else:
+                lines.append("・上書き設定はありません。")
+            lines.append("")
+
+        # 3. Gmail認証 (Gmail)
+        if feature in ["all", "gmail"] or gmail_code:
+            lines.append("【Gmail連携 反映内容】")
+            if gmail_ok:
+                lines.append("・Gmail認証連携を正常に完了しました！今後自動で休講・補講のメール情報を取得して通知を行います。")
+            elif gmail_code:
+                lines.append("・Gmail認証連携に失敗しました。認証コードが正しいかご確認ください。")
+            else:
+                lines.append("・Gmail連携は今回更新されませんでした。")
+            lines.append("")
+
+        # 4. 試験設定 (Exam)
+        if feature in ["all", "exam"]:
+            exams = user_data.get("exam_schedules_by_term", {}).get(term, [])
+            lines.append("【試験時間割設定 反映内容】")
+            if exams:
+                for ex in exams:
+                    lines.append(f"・{ex.get('name')} ({ex.get('start')} 〜 {ex.get('end')})")
+                    for ec in ex.get("classes") or []:
+                        day_name = WEEKDAYS[ec['day']] if isinstance(ec.get('day'), int) and 0 <= ec['day'] < len(WEEKDAYS) else "不明"
+                        lines.append(f"  └ {day_name} {ec.get('period')}限: {ec.get('subject')} ({ec.get('room')})")
+            else:
+                lines.append("・試験設定はありません。")
+            lines.append("")
+
+        await send_long_dm(interaction.user, "\n".join(lines))
         await interaction.followup.send(
             "反映が完了しました。詳細をDMに送信しました。", ephemeral=True
         )
@@ -908,7 +963,11 @@ async def mail_setcode(interaction: discord.Interaction, code: str):
         with open(token_file, "wb") as token:
             pickle.dump(creds, token)
         del user_auth_flows[user_id]
-        await send_dm(interaction.user, "Gmail 認証が完了しました。")
+        await send_dm(
+            interaction.user,
+            "【Gmail連携完了通知】\n\nGmail 認証が正常に完了しました！\n"
+            "今後、Gmailに届く休講・補講のメール情報を自動的にスキャンし、事前にDiscord上で通知を行うことができます。"
+        )
         await interaction.followup.send("認証完了しました。", ephemeral=True)
     except Exception as e:
         await interaction.followup.send(f"認証に失敗しました: {e}", ephemeral=True)
