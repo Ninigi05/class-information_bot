@@ -8,6 +8,25 @@ from utils import send_dm
 
 logger = logging.getLogger(__name__)
 
+# グローバルにBotインスタンスを保持
+_bot_instance = None
+
+
+def set_discord_bot(bot):
+    """
+    Discord Bot のインスタンスを設定します（setup_hookで呼び出します）
+    """
+    global _bot_instance
+    _bot_instance = bot
+    logger.info("[Notification] Discord Bot インスタンスが正常にセットされました。")
+
+
+def get_discord_bot():
+    """
+    登録されている Discord Bot インスタンスを取得します
+    """
+    return _bot_instance
+
 
 async def notify_user_change(user_id: str | int, message: str):
     """
@@ -15,12 +34,10 @@ async def notify_user_change(user_id: str | int, message: str):
     FastAPI のイベントループから Discord Bot のイベントループへスレッドセーフに非同期タスクを送信します。
     """
     try:
-        from main import get_discord_bot
-
         bot = get_discord_bot()
         if bot is None:
             logger.warning(
-                "[Notification] Discord bot インスタンスが取得できませんでした。通知をスキップします。"
+                "[Notification] Discord bot インスタンスが登録されていません。通知をスキップします。"
             )
             return
 
@@ -64,4 +81,5 @@ async def notify_user_change(user_id: str | int, message: str):
         logger.exception(
             f"[Notification] DM通知タスクの作成中にエラーが発生しました: {e}"
         )
+
 
