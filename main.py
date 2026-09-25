@@ -5,6 +5,8 @@ import logging
 import glob
 import ssl
 import socket
+from typing import Optional
+
 from logging.handlers import RotatingFileHandler
 import discord
 import unicodedata
