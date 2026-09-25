@@ -414,9 +414,9 @@
       for (const p of periods) {
         html += `<tr><td class='border p-2 bg-slate-50 text-center font-bold text-sm'>${p}限</td>`;
         for (const w of weekdays) {
-          const c = (timetableData[w] && timetableData[w][p]) ? timetableData[w][p] : null;
+          const c = (timetableData && timetableData[w] && timetableData[w][p]) ? timetableData[w][p] : null;
           html += `<td class='border p-1'>
-            <button class='w-full min-h-[66px] text-left p-1.5 rounded transition duration-150 ${c ? "bg-cyan-50 hover:bg-cyan-100 border border-cyan-200" : "bg-white hover:bg-slate-50 border border-dashed border-slate-300"}' data-weekday='${w}' data-period='${p}'>
+            <button type='button' class='w-full min-h-[66px] text-left p-1.5 rounded transition duration-150 ${c ? "bg-cyan-50 hover:bg-cyan-100 border border-cyan-200" : "bg-white hover:bg-slate-50 border border-dashed border-slate-300"}' data-weekday='${w}' data-period='${p}'>
               ${c ? `<div class='font-bold text-cyan-900 text-sm'>${escapeHtml(c.subject)}</div><div class='text-xs text-cyan-700 mt-0.5'>${escapeHtml(c.room)}</div>` : "<div class='text-xs text-slate-400 text-center font-semibold'>+ 追加</div>"}
             </button>
           </td>`;
