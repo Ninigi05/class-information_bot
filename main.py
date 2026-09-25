@@ -1151,6 +1151,19 @@ class ClassBot(commands.Bot):
 
 bot = ClassBot()
 
+# グローバルなbotインスタンス参照用
+_discord_bot_instance: Optional[commands.Bot] = None
+
+def get_discord_bot() -> Optional[commands.Bot]:
+    return _discord_bot_instance
+
+@bot.event
+async def setup_hook():
+    global _discord_bot_instance
+    _discord_bot_instance = bot
+    logger.info("[Bot] グローバルbotインスタンスが設定されました。")
+
+
 
 @bot.event
 async def on_member_join(member: discord.Member):
