@@ -89,7 +89,7 @@
       </div>
 
       <div class="flex justify-end">
-        <button id="saveSettingsBtn" type="button" class="px-5 py-2 rounded bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-sm">設定を保存</button>
+        <button id="saveSettingsBtnBottom" type="button" class="px-5 py-2 rounded bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-sm">設定を保存</button>
       </div>
     </section>
 
@@ -214,6 +214,7 @@
       morningTime: document.getElementById("morningTime"),
       saveTimetableBtn: document.getElementById("saveTimetableBtn"),
       saveSettingsBtn: document.getElementById("saveSettingsBtn"),
+      saveSettingsBtnBottom: document.getElementById("saveSettingsBtnBottom"),
       saveOverridesBtn: document.getElementById("saveOverridesBtn"),
       saveGmailBtn: document.getElementById("saveGmailBtn"),
       termStartLabel: document.getElementById("termStartLabel"),
@@ -481,9 +482,15 @@
 
     async function saveTimetable() {
       try {
-        draft.classes_by_term[currentTerm] = getClassesFromTimetable();
+        const classes = getClassesFromTimetable();
+        await apiRequest(`/api/classes/bulk?term=${encodeURIComponent(currentTerm)}`, {
+          method: 'POST',
+          body: JSON.stringify({ classes })
+        });
+
+        draft.classes_by_term[currentTerm] = classes;
         persist();
-        alert("通常時間割を保存しました。");
+        alert("通常時間割を保存しました。Bot側へも自動的に同期されました。");
       } catch (e) {
         alert("時間割の保存に失敗しました。");
       }
@@ -491,8 +498,16 @@
 
     async function saveOverrides() {
       try {
+        await apiRequest(`/api/overrides/bulk?term=${encodeURIComponent(currentTerm)}`, {
+          method: 'POST',
+          body: JSON.stringify({
+            day_overrides: draft.day_overrides,
+            room_overrides: draft.room_overrides
+          })
+        });
+
         persist();
-        alert("上書き設定を保存しました。");
+        alert("上書き設定を保存しました。Bot側へも自動的に同期されました。");
       } catch (e) {
         alert("上書き設定の保存に失敗しました。");
       }
@@ -500,9 +515,15 @@
 
     async function saveGmailSettings() {
       try {
-        draft.gmail_auth_code = (el.gmailAuthCode.value || "").trim();
+        const authCode = (el.gmailAuthCode.value || "").trim();
+        await apiRequest(`/api/settings/gmail`, {
+          method: 'POST',
+          body: JSON.stringify({ gmail_auth_code: authCode })
+        });
+
+        draft.gmail_auth_code = authCode;
         persist();
-        alert("Gmail認証設定を保存しました。");
+        alert("Gmail認証設定を保存しました。Bot側へも自動的に同期されました。");
       } catch (e) {
         alert("Gmail認証設定の保存に失敗しました。");
       }
@@ -536,6 +557,9 @@
     el.dlgDelete.addEventListener("click", handleDelete);
     el.dlgClose.addEventListener("click", () => el.classDialog.close());
     el.saveSettingsBtn.addEventListener("click", saveSettings);
+    if (el.saveSettingsBtnBottom) {
+      el.saveSettingsBtnBottom.addEventListener("click", saveSettings);
+    }
 
     el.termToggle1st.addEventListener("click", () => {
       currentTerm = "前期";
@@ -740,6 +764,9 @@
     el.saveGmailBtn.addEventListener("click", saveGmailSettings);
 
     el.saveSettingsBtn.addEventListener("click", saveSettings);
+    if (el.saveSettingsBtnBottom) {
+      el.saveSettingsBtnBottom.addEventListener("click", saveSettings);
+    }
     el.issueKeyClasses.addEventListener("click", async () => runIssue("classes"));
     el.issueKeyNotify.addEventListener("click", async () => {
       // 連携前にドラフトへ反映

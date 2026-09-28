@@ -22,6 +22,7 @@ from web.schemas import (
     ClassUpdate,
     ListResponse,
     SuccessResponse,
+    TimetableBulkSaveRequest,
 )
 from web.api.notification import notify_user_change
 
@@ -325,6 +326,68 @@ async def delete_class(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="授業の削除に失敗しました",
+        )
+
+
+@router.post("/bulk", response_model=SuccessResponse)
+async def bulk_save_classes(
+    bulk_data: TimetableBulkSaveRequest,
+    term: str = None,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """
+    通常時間割を一括保存
+    """
+    try:
+        user_id = current_user.user_id
+        user_data = load_user_data(user_id)
+        selected_term = normalize_term_key(term)
+
+        # 授業データをパース・変換
+        formatted_classes = []
+        for cls in bulk_data.classes:
+            if cls.weekday not in WEEKDAY_MAP:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"無効な曜日です: {cls.weekday}",
+                )
+            if cls.period not in PERIOD_TO_TIME:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"無効な時限です: {cls.period}",
+                )
+            
+            formatted_classes.append({
+                "day": WEEKDAY_MAP[cls.weekday],
+                "period": cls.period,
+                "subject": cls.subject,
+                "room": cls.room,
+            })
+
+        # データベースを上書き保存
+        user_data.setdefault("classes_by_term", {})[selected_term] = formatted_classes
+        save_user_data(user_id, user_data)
+
+        # DM通知を送信
+        msg = (
+            f"通常時間割を一括保存・更新しました。\n\n"
+            f"・学期: {selected_term}\n"
+            f"・登録授業件数: {len(formatted_classes)}件\n\n"
+            "※Webダッシュボード上から通常時間割が正常に同期されました。"
+        )
+        await notify_user_change(user_id, msg)
+
+        return SuccessResponse(
+            message=f"{selected_term} の通常時間割を保存しました",
+            data={"count": len(formatted_classes)},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"通常時間割一括保存エラー: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="時間割の一括保存に失敗しました",
         )
 
 

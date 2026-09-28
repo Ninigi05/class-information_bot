@@ -211,6 +211,22 @@ class NotifySettingsUpdate(BaseModel):
     notify: NotifySettingsDraft
 
 
+
+class TimetableBulkSaveRequest(BaseModel):
+    """時間割一括保存リクエスト"""
+    classes: List[ClassCreate] = Field(..., description="授業リスト")
+
+
+class OverridesBulkSaveRequest(BaseModel):
+    """上書き設定一括保存リクエスト"""
+    day_overrides: List[dict] = Field(default=[], description="曜日上書きリスト")
+    room_overrides: List[dict] = Field(default=[], description="教室上書きリスト")
+
+
+class GmailSettingsSaveRequest(BaseModel):
+    """Gmail認証設定保存リクエスト"""
+    gmail_auth_code: str = Field(..., description="GmailのOAuth2認証コード")
+
 class SettingsShowResponse(BaseModel):
     """設定情報レスポンス"""
 

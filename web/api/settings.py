@@ -22,6 +22,7 @@ from web.schemas import (
     SettingsShowResponse,
     SuccessResponse,
     NotifySettingsUpdate,
+    GmailSettingsSaveRequest,
 )
 from web.api.notification import notify_user_change
 
@@ -300,3 +301,40 @@ async def update_term_settings(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="学期設定の更新に失敗しました",
         )
+
+
+
+@router.post("/gmail", response_model=SuccessResponse)
+async def update_gmail_auth(
+    gmail_data: GmailSettingsSaveRequest,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """
+    Gmail連携用の認証コード（OAuth2 code）を保存
+    """
+    try:
+        user_id = current_user.user_id
+        data = load_user_data(user_id)
+
+        # 認証コードを登録
+        data["gmail_auth_code"] = gmail_data.gmail_auth_code
+        save_user_data(user_id, data)
+
+        logger.info(f"Gmail認証コード更新: user_id={user_id}")
+
+        # DM通知を送信
+        msg = (
+            f"Gmail休講情報連携設定を更新しました。\n\n"
+            f"・認証コード: {'*'*len(gmail_data.gmail_auth_code) if gmail_data.gmail_auth_code else '未設定'}\n\n"
+            "※Webダッシュボード上からGmail認証コードが正常に同期されました。"
+        )
+        await notify_user_change(user_id, msg)
+
+        return SuccessResponse(message="Gmail認証コードを保存しました", data=None)
+    except Exception as e:
+        logger.exception(f"Gmail認証コード保存エラー: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Gmail認証コードの保存に失敗しました",
+        )
+

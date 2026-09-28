@@ -19,6 +19,7 @@ from web.schemas import (
     CancelCreate,
     ListResponse,
     SuccessResponse,
+    OverridesBulkSaveRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -348,3 +349,51 @@ async def delete_cancel_class(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="休講の削除に失敗しました",
         )
+
+
+
+@router.post("/api/overrides/bulk", response_model=SuccessResponse)
+async def bulk_save_overrides(
+    bulk_data: OverridesBulkSaveRequest,
+    term: str = None,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """
+    曜日上書き設定・教室上書き設定を一括保存
+    """
+    try:
+        user_id = current_user.user_id
+        user_data = load_user_data(user_id)
+        selected_term = normalize_term_key(term)
+
+        # データを更新（Web側のドラフトに同期する）
+        # day_overrides / room_overrides は各学期に依存しない場合でも、ユーザーデータベースのキーに保存
+        user_data["day_overrides"] = bulk_data.day_overrides
+        user_data["room_overrides"] = bulk_data.room_overrides
+
+        save_user_data(user_id, user_data)
+
+        # DM通知を送信
+        msg = (
+            f"時間割の上書き設定を保存・更新しました。\n\n"
+            f"・学期: {selected_term}\n"
+            f"・曜日上書き: {len(bulk_data.day_overrides)}件\n"
+            f"・教室上書き: {len(bulk_data.room_overrides)}件\n\n"
+            "※Webダッシュボード上から上書き設定が正常に同期されました。"
+        )
+        await notify_user_change(user_id, msg)
+
+        return SuccessResponse(
+            message="上書き設定を保存しました",
+            data={
+                "day_overrides_count": len(bulk_data.day_overrides),
+                "room_overrides_count": len(bulk_data.room_overrides),
+            }
+        )
+    except Exception as e:
+        logger.exception(f"上書き設定一括保存エラー: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="上書き設定の保存に失敗しました",
+        )
+
