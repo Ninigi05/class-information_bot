@@ -1,7 +1,10 @@
 import json
 import os
 import logging
-import fcntl
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 from datetime import datetime
 
 BASE_DIR = os.getcwd()

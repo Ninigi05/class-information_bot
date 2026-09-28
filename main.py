@@ -1070,7 +1070,6 @@ class ClassBot(commands.Bot):
                 "discord.py のバージョンが古いため、app command の install/context 設定はスキップします。"
             )
 
-        # cog のロード状況をデバッグ出力
     async def setup_hook(self):
         # cog のロード状況をデバッグ出力
         for ext in ["cogs.class_cog", "cogs.exam_cog", "cogs.setting_cog", "cogs.notification_cog"]:
@@ -1140,29 +1139,10 @@ class ClassBot(commands.Bot):
                 logger.exception(f"helpコマンド実行エラー: {e}")
                 await interaction.followup.send("エラーが発生しました。", ephemeral=True)
 
-    async def setup_hook(self):
-        # cog のロード状況をデバッグ出力
-        for ext in ["cogs.class_cog", "cogs.exam_cog", "cogs.setting_cog", "cogs.notification_cog"]:
-            try:
-                await self.load_extension(ext)
-                logger.info(f"[INFO] 拡張機能のロード成功: {ext}")
-            except Exception as e:
-                logger.exception(f"[ERROR] 拡張機能のロード失敗 ({ext}): {e}")
+        logger.info(f"[INFO] treeに登録されているコマンド数: {len(self.tree.get_commands())}")
+        for cmd in self.tree.get_commands():
+            logger.info(f"[INFO] 登録コマンド名: {cmd.name}")
 
-        # mail グループ（Gmail認証・取得）
-        self.tree.add_command(mail_group)
-        self.tree.add_command(web_group)
-
-        # /help コマンド
-        @self.tree.command(
-            name="help",
-            description="使い方ヘルプをDMで受け取ります（コマンド一覧をカテゴリ別に表示）",
-        )
-        async def help_command(interaction: discord.Interaction):
-            try:
-                await interaction.response.defer(ephemeral=True)
-            except Exception:
-                pass
 
             lines = []
             lines.append("**授業情報Bot — ヘルプ（カテゴリ別）**\n")
