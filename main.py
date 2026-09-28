@@ -1070,6 +1070,78 @@ class ClassBot(commands.Bot):
                 "discord.py のバージョンが古いため、app command の install/context 設定はスキップします。"
             )
 
+        # cog のロード状況をデバッグ出力
+        for ext in ["cogs.class_cog", "cogs.exam_cog", "cogs.setting_cog", "cogs.notification_cog"]:
+            try:
+                await self.load_extension(ext)
+                logger.info(f"[INFO] 拡張機能のロード成功: {ext}")
+            except Exception as e:
+                logger.exception(f"[ERROR] 拡張機能のロード失敗 ({ext}): {e}")
+
+        # mail グループ（Gmail認証・取得）
+        self.tree.add_command(mail_group)
+        self.tree.add_command(web_group)
+
+        # /help コマンド
+        @self.tree.command(
+            name="help",
+            description="使い方ヘルプをDMで受け取ります（コマンド一覧をカテゴリ別に表示）",
+        )
+        async def help_command(interaction: discord.Interaction):
+            try:
+                await interaction.response.defer(ephemeral=True)
+            except Exception:
+                pass
+
+            lines = []
+            lines.append("**授業情報Bot — ヘルプ（カテゴリ別）**\n")
+            lines.append(
+                "※このヘルプはDMで届きます。DMを許可していない場合は許可してください。\n"
+            )
+
+            lines.append("===  授業管理（/class） ===")
+            lines.append(
+                "• /class add weekday period subject room\n  → 授業を登録します"
+            )
+            lines.append("• /class remove weekday period\n  → 授業を削除します")
+            lines.append(
+                "• /class list [term]\n  → 登録授業一覧をDMで受け取ります（term: 前期/後期）"
+            )
+            lines.append(
+                "• /class table [term]\n  → 時間割表形式で表示します（term: 前期/後期）"
+            )
+            lines.append("• /class update weekday period subject room\n  → 授業情報を更新します")
+            lines.append("• /class semester [term]\n  → 学期を設定します")
+
+            lines.append("\n===  試験管理（/exam） ===")
+            lines.append("• /exam add date subject\n  → 試験を登録します")
+            lines.append("• /exam remove id\n  → 試験を削除します")
+            lines.append("• /exam list\n  → 試験一覧を表示します")
+
+            lines.append("\n===  通知・設定（/setting, /mail） ===")
+            lines.append("• /setting notification [on/off]\n  → 通知設定を変更します")
+            lines.append("• /setting morning [time]\n  → 朝の通知時刻を設定します")
+            lines.append("• /setting status\n  → 現在の設定を確認します")
+            lines.append("• /mail auth [code]\n  → Gmail認証コードを設定します")
+            lines.append("• /mail fetch\n  → メールから情報を手動取得します")
+
+            text = "\n".join(lines)
+            try:
+                await interaction.user.send(text)
+                await interaction.followup.send("ヘルプをDMに送信しました。", ephemeral=True)
+            except discord.Forbidden:
+                await interaction.followup.send(
+                    "DMの送信に失敗しました。BOTからのDMを受信できるように設定してください。",
+                    ephemeral=True,
+                )
+            except Exception as e:
+                logger.exception(f"helpコマンド実行エラー: {e}")
+                await interaction.followup.send("エラーが発生しました。", ephemeral=True)
+
+        logger.info(f"[INFO] treeに登録されているコマンド数: {len(self.tree.get_commands())}")
+        for cmd in self.tree.get_commands():
+            logger.info(f"[INFO] 登録コマンド名: {cmd.name}")
+
     async def setup_hook(self):
         # cog のロード
         await self.load_extension("cogs.class_cog")
