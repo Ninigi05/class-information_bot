@@ -1140,11 +1140,8 @@ class ClassBot(commands.Bot):
                 logger.exception(f"helpコマンド実行エラー: {e}")
                 await interaction.followup.send("エラーが発生しました。", ephemeral=True)
 
-        logger.info(f"[INFO] treeに登録されているコマンド数: {len(self.tree.get_commands())}")
-        for cmd in self.tree.get_commands():
-            logger.info(f"[INFO] 登録コマンド名: {cmd.name}")
-
-
+    async def setup_hook(self):
+        # cog のロード状況をデバッグ出力
         for ext in ["cogs.class_cog", "cogs.exam_cog", "cogs.setting_cog", "cogs.notification_cog"]:
             try:
                 await self.load_extension(ext)
@@ -1215,6 +1212,7 @@ class ClassBot(commands.Bot):
         logger.info(f"[INFO] treeに登録されているコマンド数: {len(self.tree.get_commands())}")
         for cmd in self.tree.get_commands():
             logger.info(f"[INFO] 登録コマンド名: {cmd.name}")
+
 
     async def setup_hook(self):
         # cog のロード
