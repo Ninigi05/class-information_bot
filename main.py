@@ -1071,13 +1071,31 @@ class ClassBot(commands.Bot):
             )
 
     async def setup_hook(self):
-        # cog のロード状況をデバッグ出力
-        for ext in ["cogs.class_cog", "cogs.exam_cog", "cogs.setting_cog", "cogs.notification_cog"]:
+        # 起動時にロードするcogリスト
+        target_cogs = [
+            "cogs.class_cog",
+            "cogs.exam_cog",
+            "cogs.setting_cog",
+            "cogs.notification_cog",
+        ]
+        
+        loaded_cogs = []
+        failed_cogs = []
+
+        for ext in target_cogs:
             try:
                 await self.load_extension(ext)
+                loaded_cogs.append(ext)
                 logger.info(f"[INFO] 拡張機能のロード成功: {ext}")
             except Exception as e:
+                failed_cogs.append((ext, str(e)))
                 logger.exception(f"[ERROR] 拡張機能のロード失敗 ({ext}): {e}")
+
+        # ロード結果のまとめログ出力
+        logger.info("========================================")
+        logger.info(f"[COG STATUS] 読み込み成功したCog ({len(loaded_cogs)}/{len(target_cogs)}): {loaded_cogs if loaded_cogs else 'なし'}")
+        logger.info(f"[COG STATUS] 読み込み失敗したCog ({len(failed_cogs)}/{len(target_cogs)}): {[f'{ext} (理由: {err})' for ext, err in failed_cogs] if failed_cogs else 'なし'}")
+        logger.info("========================================")
 
         # mail グループ（Gmail認証・取得）
         self.tree.add_command(mail_group)
@@ -1196,10 +1214,12 @@ class ClassBot(commands.Bot):
 
     async def setup_hook(self):
         # cog のロード
-        await self.load_extension("cogs.class_cog")
-        await self.load_extension("cogs.exam_cog")
-        await self.load_extension("cogs.setting_cog")
-        await self.load_extension("cogs.notification_cog")
+        for ext in ["cogs.class_cog", "cogs.exam_cog", "cogs.setting_cog", "cogs.notification_cog"]:
+            try:
+                await self.load_extension(ext)
+                logger.info(f"[INFO] 拡張機能のロード成功: {ext}")
+            except Exception as e:
+                logger.exception(f"[ERROR] 拡張機能のロード失敗 ({ext}): {e}")
 
         # mail グループ（Gmail認証・取得）
         self.tree.add_command(mail_group)
