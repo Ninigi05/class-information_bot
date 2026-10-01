@@ -61,6 +61,65 @@ def normalize_term_key(term: str | None) -> str:
 
 def get_effective_term(user_id: int) -> str:
     """
+    ユーザー設定の開始日・終了日を考慮して、現在の学期を判定する。
+    1週間に1回自動判定し、user_id のデータにキャッシュとして保存する。
+    設定がない場合は従来の get_current_term() (月判定) にフォールバックする。
+    """
+    from utils import load_user_data, save_user_data, get_current_term
+    from datetime import datetime
+
+    data = load_user_data(user_id)
+    cached_term_info = data.get("effective_term_cache", {})
+    now_dt = datetime.now()
+    now_date_str = now_dt.strftime("%Y-%m-%d")
+    
+    last_checked_date_str = cached_term_info.get("date")
+    cached_term = cached_term_info.get("term")
+
+    # キャッシュが存在し、かつ前回の判定から7日以内であればキャッシュを利用
+    if cached_term and last_checked_date_str:
+        try:
+            last_dt = datetime.strptime(last_checked_date_str, "%Y-%m-%d")
+            if 0 <= (now_dt - last_dt).days < 7:
+                return cached_term
+        except Exception:
+            pass
+
+    # 1週間に1回の判定タイミング、またはキャッシュがない場合：学期判定を実行
+    term_ranges = data.get("term_ranges", {}) or {}
+    determined_term = None
+
+    for term in ["前期", "後期"]:
+        term_range = term_ranges.get(term, {})
+        start = term_range.get("start")
+        end = term_range.get("end")
+        if start and end:
+            if start <= now_date_str <= end:
+                determined_term = term
+                logger.info(
+                    f"[Term Detection (Weekly)] User={user_id} detected as '{term}' (Setting-based: {start} to {end})"
+                )
+                break
+
+    if not determined_term:
+        determined_term = get_current_term()
+        logger.info(
+            f"[Term Detection (Weekly)] User={user_id} detected as '{determined_term}' (Month-based fallback)"
+        )
+
+    # キャッシュを更新して保存
+    data["effective_term_cache"] = {
+        "term": determined_term,
+        "date": now_date_str
+    }
+    save_user_data(user_id, data)
+
+    return determined_term
+
+
+
+def get_effective_term(user_id: int) -> str:
+    """
     ユーザー設定�E開始日・終亁E��を老E�Eして、現在の学期を判定する、E
     設定がなぁE��合�E従来の get_current_term() (月判宁E にフォールバックする、E
     """
