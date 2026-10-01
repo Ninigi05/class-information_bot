@@ -857,8 +857,15 @@ async def web_applykey(interaction: discord.Interaction, key: str):
             lines.append("【通常時間割 反映内容】")
             if classes:
                 for cls in classes:
-                    day_name = WEEKDAYS[cls['day']] if isinstance(cls.get('day'), int) and 0 <= cls['day'] < len(WEEKDAYS) else "不明"
-                    lines.append(f"・{day_name} {cls.get('period')}限: {cls.get('subject')} ({cls.get('room')})")
+                    day_name = (
+                        WEEKDAYS[cls["day"]]
+                        if isinstance(cls.get("day"), int)
+                        and 0 <= cls["day"] < len(WEEKDAYS)
+                        else "不明"
+                    )
+                    lines.append(
+                        f"・{day_name} {cls.get('period')}限: {cls.get('subject')} ({cls.get('room')})"
+                    )
             else:
                 lines.append("・登録されている授業はありません。")
             lines.append("")
@@ -876,7 +883,9 @@ async def web_applykey(interaction: discord.Interaction, key: str):
                 if room_ov:
                     lines.append("■ 教室上書き:")
                     for r in room_ov:
-                        lines.append(f"  ・{r.get('date')} {r.get('period')}限: ➔ {r.get('room')}")
+                        lines.append(
+                            f"  ・{r.get('date')} {r.get('period')}限: ➔ {r.get('room')}"
+                        )
             else:
                 lines.append("・上書き設定はありません。")
             lines.append("")
@@ -885,9 +894,13 @@ async def web_applykey(interaction: discord.Interaction, key: str):
         if feature in ["all", "gmail"] or gmail_code:
             lines.append("【Gmail連携 反映内容】")
             if gmail_ok:
-                lines.append("・Gmail認証連携を正常に完了しました！今後自動で休講・補講のメール情報を取得して通知を行います。")
+                lines.append(
+                    "・Gmail認証連携を正常に完了しました！今後自動で休講・補講のメール情報を取得して通知を行います。"
+                )
             elif gmail_code:
-                lines.append("・Gmail認証連携に失敗しました。認証コードが正しいかご確認ください。")
+                lines.append(
+                    "・Gmail認証連携に失敗しました。認証コードが正しいかご確認ください。"
+                )
             else:
                 lines.append("・Gmail連携は今回更新されませんでした。")
             lines.append("")
@@ -898,10 +911,19 @@ async def web_applykey(interaction: discord.Interaction, key: str):
             lines.append("【試験時間割設定 反映内容】")
             if exams:
                 for ex in exams:
-                    lines.append(f"・{ex.get('name')} ({ex.get('start')} 〜 {ex.get('end')})")
+                    lines.append(
+                        f"・{ex.get('name')} ({ex.get('start')} 〜 {ex.get('end')})"
+                    )
                     for ec in ex.get("classes") or []:
-                        day_name = WEEKDAYS[ec['day']] if isinstance(ec.get('day'), int) and 0 <= ec['day'] < len(WEEKDAYS) else "不明"
-                        lines.append(f"  └ {day_name} {ec.get('period')}限: {ec.get('subject')} ({ec.get('room')})")
+                        day_name = (
+                            WEEKDAYS[ec["day"]]
+                            if isinstance(ec.get("day"), int)
+                            and 0 <= ec["day"] < len(WEEKDAYS)
+                            else "不明"
+                        )
+                        lines.append(
+                            f"  └ {day_name} {ec.get('period')}限: {ec.get('subject')} ({ec.get('room')})"
+                        )
             else:
                 lines.append("・試験設定はありません。")
             lines.append("")
@@ -966,7 +988,7 @@ async def mail_setcode(interaction: discord.Interaction, code: str):
         await send_dm(
             interaction.user,
             "【Gmail連携完了通知】\n\nGmail 認証が正常に完了しました！\n"
-            "今後、Gmailに届く休講・補講のメール情報を自動的にスキャンし、事前にDiscord上で通知を行うことができます。"
+            "今後、Gmailに届く休講・補講のメール情報を自動的にスキャンし、事前にDiscord上で通知を行うことができます。",
         )
         await interaction.followup.send("認証完了しました。", ephemeral=True)
     except Exception as e:
@@ -1078,7 +1100,7 @@ class ClassBot(commands.Bot):
             "cogs.setting_cog",
             "cogs.notification_cog",
         ]
-        
+
         loaded_cogs = []
         failed_cogs = []
 
@@ -1093,8 +1115,12 @@ class ClassBot(commands.Bot):
 
         # ロード結果のまとめログ出力
         logger.info("========================================")
-        logger.info(f"[COG STATUS] 読み込み成功したCog ({len(loaded_cogs)}/{len(target_cogs)}): {loaded_cogs if loaded_cogs else 'なし'}")
-        logger.info(f"[COG STATUS] 読み込み失敗したCog ({len(failed_cogs)}/{len(target_cogs)}): {[f'{ext} (理由: {err})' for ext, err in failed_cogs] if failed_cogs else 'なし'}")
+        logger.info(
+            f"[COG STATUS] 読み込み成功したCog ({len(loaded_cogs)}/{len(target_cogs)}): {loaded_cogs if loaded_cogs else 'なし'}"
+        )
+        logger.info(
+            f"[COG STATUS] 読み込み失敗したCog ({len(failed_cogs)}/{len(target_cogs)}): {[f'{ext} (理由: {err})' for ext, err in failed_cogs] if failed_cogs else 'なし'}"
+        )
         logger.info("========================================")
 
         # mail グループ（Gmail認証・取得）
@@ -1129,7 +1155,9 @@ class ClassBot(commands.Bot):
             lines.append(
                 "• /class table [term]\n  → 時間割表形式で表示します（term: 前期/後期）"
             )
-            lines.append("• /class update weekday period subject room\n  → 授業情報を更新します")
+            lines.append(
+                "• /class update weekday period subject room\n  → 授業情報を更新します"
+            )
             lines.append("• /class semester [term]\n  → 学期を設定します")
 
             lines.append("\n===  試験管理（/exam） ===")
@@ -1147,7 +1175,9 @@ class ClassBot(commands.Bot):
             text = "\n".join(lines)
             try:
                 await interaction.user.send(text)
-                await interaction.followup.send("ヘルプをDMに送信しました。", ephemeral=True)
+                await interaction.followup.send(
+                    "ヘルプをDMに送信しました。", ephemeral=True
+                )
             except discord.Forbidden:
                 await interaction.followup.send(
                     "DMの送信に失敗しました。BOTからのDMを受信できるように設定してください。",
@@ -1155,12 +1185,15 @@ class ClassBot(commands.Bot):
                 )
             except Exception as e:
                 logger.exception(f"helpコマンド実行エラー: {e}")
-                await interaction.followup.send("エラーが発生しました。", ephemeral=True)
+                await interaction.followup.send(
+                    "エラーが発生しました。", ephemeral=True
+                )
 
-        logger.info(f"[INFO] treeに登録されているコマンド数: {len(self.tree.get_commands())}")
+        logger.info(
+            f"[INFO] treeに登録されているコマンド数: {len(self.tree.get_commands())}"
+        )
         for cmd in self.tree.get_commands():
             logger.info(f"[INFO] 登録コマンド名: {cmd.name}")
-
 
             lines = []
             lines.append("**授業情報Bot — ヘルプ（カテゴリ別）**\n")
@@ -1179,7 +1212,9 @@ class ClassBot(commands.Bot):
             lines.append(
                 "• /class table [term]\n  → 時間割表形式で表示します（term: 前期/後期）"
             )
-            lines.append("• /class update weekday period subject room\n  → 授業情報を更新します")
+            lines.append(
+                "• /class update weekday period subject room\n  → 授業情報を更新します"
+            )
             lines.append("• /class semester [term]\n  → 学期を設定します")
 
             lines.append("\n===  試験管理（/exam） ===")
@@ -1197,7 +1232,9 @@ class ClassBot(commands.Bot):
             text = "\n".join(lines)
             try:
                 await interaction.user.send(text)
-                await interaction.followup.send("ヘルプをDMに送信しました。", ephemeral=True)
+                await interaction.followup.send(
+                    "ヘルプをDMに送信しました。", ephemeral=True
+                )
             except discord.Forbidden:
                 await interaction.followup.send(
                     "DMの送信に失敗しました。BOTからのDMを受信できるように設定してください。",
@@ -1205,16 +1242,23 @@ class ClassBot(commands.Bot):
                 )
             except Exception as e:
                 logger.exception(f"helpコマンド実行エラー: {e}")
-                await interaction.followup.send("エラーが発生しました。", ephemeral=True)
+                await interaction.followup.send(
+                    "エラーが発生しました。", ephemeral=True
+                )
 
-        logger.info(f"[INFO] treeに登録されているコマンド数: {len(self.tree.get_commands())}")
+        logger.info(
+            f"[INFO] treeに登録されているコマンド数: {len(self.tree.get_commands())}"
+        )
         for cmd in self.tree.get_commands():
             logger.info(f"[INFO] 登録コマンド名: {cmd.name}")
 
-
-    async def setup_hook(self):
         # cog のロード
-        for ext in ["cogs.class_cog", "cogs.exam_cog", "cogs.setting_cog", "cogs.notification_cog"]:
+        for ext in [
+            "cogs.class_cog",
+            "cogs.exam_cog",
+            "cogs.setting_cog",
+            "cogs.notification_cog",
+        ]:
             try:
                 await self.load_extension(ext)
                 logger.info(f"[INFO] 拡張機能のロード成功: {ext}")
@@ -1359,27 +1403,30 @@ bot = ClassBot()
 # グローバルなbotインスタンス参照用
 _discord_bot_instance: Optional[commands.Bot] = None
 
+
 def get_discord_bot() -> Optional[commands.Bot]:
     return _discord_bot_instance
+
 
 @bot.event
 async def setup_hook():
     global _discord_bot_instance
     _discord_bot_instance = bot
     logger.info("[Bot] グローバルbotインスタンスが設定されました。")
-    
+
     # builtinsにグローバル登録 (スレッド/インポート境界を越えた共有用)
     import builtins
+
     builtins._discord_bot = bot
     logger.info("[Bot] builtins にBotインスタンスを登録しました。")
-    
+
     # DM通知モジュールにもBotインスタンスを登録
     try:
         from web.api.notification import set_discord_bot
+
         set_discord_bot(bot)
     except Exception as e:
         logger.error(f"[Bot] notificationへのBotインスタンス登録に失敗しました: {e}")
-
 
 
 @bot.event
