@@ -62,11 +62,11 @@ def normalize_term_key(term: str | None) -> str:
 def get_effective_term(user_id: int) -> str:
     """
     ユーザー設定の開始日・終了日を考慮して、現在の学期を判定する。
-    1週間に1回自動判定し、user_id のデータにキャッシュとして保存する。
+    毎日朝8:00のみ判定を行い、その日のキャッシュを保持する。
     設定がない場合は従来の get_current_term() (月判定) にフォールバックする。
     """
     from utils import load_user_data, save_user_data, get_current_term
-    from datetime import datetime
+    from datetime import datetime, timedelta
 
     data = load_user_data(user_id)
     cached_term_info = data.get("effective_term_cache", {})
@@ -76,16 +76,18 @@ def get_effective_term(user_id: int) -> str:
     last_checked_date_str = cached_term_info.get("date")
     cached_term = cached_term_info.get("term")
 
-    # キャッシュが存在し、かつ前回の判定から7日以内であればキャッシュを利用
-    if cached_term and last_checked_date_str:
-        try:
-            last_dt = datetime.strptime(last_checked_date_str, "%Y-%m-%d")
-            if 0 <= (now_dt - last_dt).days < 7:
-                return cached_term
-        except Exception:
-            pass
+    # 毎日朝8:00を境に判定を更新する。
+    # 現在時刻が8:00未満の場合、今日の朝8:00にはまだ達していないため、判定基準日は「前日」とする。
+    # 8:00以降の場合は判定基準日は「今日」とする。
+    if now_dt.hour < 8:
+        effective_base_date = (now_dt - timedelta(days=1)).strftime("%Y-%m-%d")
+    else:
+        effective_base_date = now_date_str
 
-    # 1週間に1回の判定タイミング、またはキャッシュがない場合：学期判定を実行
+    if cached_term and last_checked_date_str == effective_base_date:
+        return cached_term
+
+    # 毎日朝8:00の判定タイミング、またはキャッシュがない場合：学期判定を実行
     term_ranges = data.get("term_ranges", {}) or {}
     determined_term = None
 
@@ -97,20 +99,20 @@ def get_effective_term(user_id: int) -> str:
             if start <= now_date_str <= end:
                 determined_term = term
                 logger.info(
-                    f"[Term Detection (Weekly)] User={user_id} detected as '{term}' (Setting-based: {start} to {end})"
+                    f"[Term Detection (Daily 8:00)] User={user_id} detected as '{term}' (Setting-based: {start} to {end})"
                 )
                 break
 
     if not determined_term:
         determined_term = get_current_term()
         logger.info(
-            f"[Term Detection (Weekly)] User={user_id} detected as '{determined_term}' (Month-based fallback)"
+            f"[Term Detection (Daily 8:00)] User={user_id} detected as '{determined_term}' (Month-based fallback)"
         )
 
     # キャッシュを更新して保存
     data["effective_term_cache"] = {
         "term": determined_term,
-        "date": now_date_str
+        "date": effective_base_date
     }
     save_user_data(user_id, data)
 
