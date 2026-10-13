@@ -11,6 +11,9 @@ from utils import (
     save_user_data,
     get_current_term,
     normalize_term_key,
+    TERM_FIRST,
+    TERM_SECOND,
+    WEEKDAY_MAP,
 )
 from web.auth import TokenData, get_current_user
 from web.schemas import (
