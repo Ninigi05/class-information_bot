@@ -372,6 +372,18 @@ async def bulk_save_overrides(
         user_data["room_overrides"] = bulk_data.room_overrides
 
         save_user_data(user_id, user_data)
+        # Web設定された day_overrides を各クラスの overrides に同期する
+        if bulk_data.day_overrides:
+            for term_key in [TERM_FIRST, TERM_SECOND]:
+                classes = user_data.get("classes_by_term", {}).get(term_key, [])
+                for cls in classes:
+                    overrides_dict = cls.setdefault("overrides", {})
+                    for item in bulk_data.day_overrides:
+                        d = item.get("date") if isinstance(item, dict) else getattr(item, "date", None)
+                        w = item.get("weekday") if isinstance(item, dict) else getattr(item, "weekday", None)
+                        if d and w and w in WEEKDAY_MAP:
+                            overrides_dict[d] = WEEKDAY_MAP[w]
+
 
         # DM通知を送信
         msg = (
