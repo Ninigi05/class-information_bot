@@ -120,6 +120,8 @@ def get_effective_term(user_id: int) -> str:
 
 
 
+# --- 以下の重複定義部分は削除するかキャッシュ機能つきに統合します ---
+
 def get_effective_term(user_id: int) -> str:
     """
     ユーザー設定�E開始日・終亁E��を老E�Eして、現在の学期を判定する、E
