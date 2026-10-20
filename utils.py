@@ -120,38 +120,6 @@ def get_effective_term(user_id: int) -> str:
 
 
 
-# --- 以下の重複定義部分は削除するかキャッシュ機能つきに統合します ---
-
-def get_effective_term(user_id: int) -> str:
-    """
-    ユーザー設定�E開始日・終亁E��を老E�Eして、現在の学期を判定する、E
-    設定がなぁE��合�E従来の get_current_term() (月判宁E にフォールバックする、E
-    """
-    from utils import load_user_data, get_current_term
-    from datetime import datetime
-
-    data = load_user_data(user_id)
-    term_ranges = data.get("term_ranges", {}) or {}
-    now_date = datetime.now().strftime("%Y-%m-%d")
-
-    for term in ["前期", "後期"]:
-        term_range = term_ranges.get(term, {})
-        start = term_range.get("start")
-        end = term_range.get("end")
-        if start and end:
-            if start <= now_date <= end:
-                logger.info(
-                    f"[Term Detection] User={user_id} detected as '{term}' (Setting-based: {start} to {end})"
-                )
-                return term
-
-    term = get_current_term()
-    logger.info(
-        f"[Term Detection] User={user_id} detected as '{term}' (Month-based fallback)"
-    )
-    return term
-
-
 def get_attendance_key(term: str, weekday: int, period: str, subject: str) -> str:
     """Generate a unique key for tracking class attendance."""
     return f"{term}|{weekday}|{period}|{subject}"
