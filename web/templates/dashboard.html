@@ -117,6 +117,35 @@
       <div id="roomOverrideList" class="text-sm text-slate-700 mt-2"></div>
     </section>
 
+    <!-- 補講・休講 -->
+    <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7 space-y-4">
+      <div>
+        <h2 class="text-lg font-bold">📝 補講・休講</h2>
+        <p class="text-xs text-slate-500 mt-1">追加・削除は即時に保存され、Bot側の通知に反映されます。</p>
+      </div>
+
+      <h3 class="text-sm font-bold text-slate-700">補講（指定日・時限に登録済みの授業を追加）</h3>
+      <div class="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+        <label class="block"><span class="text-sm font-semibold">補講日</span><input id="makeupDate" type="date" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border" /></label>
+        <label class="block"><span class="text-sm font-semibold">時限</span><select id="makeupPeriod" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border"></select></label>
+        <label class="block"><span class="text-sm font-semibold">対象の授業</span><select id="makeupSource" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border"></select></label>
+        <label class="block"><span class="text-sm font-semibold">教室（任意）</span><input id="makeupRoom" type="text" placeholder="元の教室" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border placeholder-slate-400" /></label>
+        <button type="button" id="addMakeup" class="px-4 py-2 rounded bg-cyan-600 text-white font-bold hover:bg-cyan-700 h-10">補講を追加</button>
+      </div>
+      <p class="text-xs text-slate-500">補講は元の授業の授業回数として数えます。対象の授業は現在選択中の学期の時間割から選べます。</p>
+      <div id="makeupList" class="text-sm text-slate-700 mt-2"></div>
+
+      <hr class="my-4 border-slate-200" />
+
+      <h3 class="text-sm font-bold text-slate-700">休講（指定日の授業を通知せず、回数にも数えない）</h3>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+        <label class="block"><span class="text-sm font-semibold">休講日</span><input id="cancelDate" type="date" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border" /></label>
+        <label class="block md:col-span-2"><span class="text-sm font-semibold">休講になる授業</span><select id="cancelPeriod" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border"><option value="">先に日付を選択してください</option></select></label>
+        <button type="button" id="addCancel" class="px-4 py-2 rounded bg-cyan-600 text-white font-bold hover:bg-cyan-700 h-10">休講を追加</button>
+      </div>
+      <div id="cancelList" class="text-sm text-slate-700 mt-2"></div>
+    </section>
+
     <!-- Gmail休講認証（Web） -->
     <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7 space-y-4">
       <div class="flex items-center justify-between">
@@ -240,6 +269,16 @@
       ovRoomValue: document.getElementById("ovRoomValue"),
       addRoomOverride: document.getElementById("addRoomOverride"),
       roomOverrideList: document.getElementById("roomOverrideList"),
+      makeupDate: document.getElementById("makeupDate"),
+      makeupPeriod: document.getElementById("makeupPeriod"),
+      makeupSource: document.getElementById("makeupSource"),
+      makeupRoom: document.getElementById("makeupRoom"),
+      addMakeup: document.getElementById("addMakeup"),
+      makeupList: document.getElementById("makeupList"),
+      cancelDate: document.getElementById("cancelDate"),
+      cancelPeriod: document.getElementById("cancelPeriod"),
+      addCancel: document.getElementById("addCancel"),
+      cancelList: document.getElementById("cancelList"),
       openGmailAuth: document.getElementById("openGmailAuth"),
       gmailAuthUrl: document.getElementById("gmailAuthUrl"),
       gmailAuthCode: document.getElementById("gmailAuthCode"),
@@ -431,6 +470,110 @@
       el.timetable.querySelectorAll("button[data-weekday]").forEach(btn => {
         btn.addEventListener("click", () => openClassDialog(btn.dataset.weekday, btn.dataset.period));
       });
+      renderMakeupSourceOptions();
+    }
+
+    // ===== 補講・休講 =====
+    const shortWeekdays = ["月", "火", "水", "木", "金", "土", "日"];
+    function formatDate(dateStr) {
+      const d = new Date(`${dateStr}T00:00:00`);
+      return isNaN(d) ? dateStr : `${dateStr}(${shortWeekdays[(d.getDay() + 6) % 7]})`;
+    }
+
+    function renderMakeupSourceOptions() {
+      const classes = getClassesFromTimetable();
+      el.makeupSource.innerHTML = classes.length
+        ? classes.map(c => `<option value='${escapeHtml(c.weekday)}|${c.period}'>${escapeHtml(c.weekday)} ${c.period}限 ${escapeHtml(c.subject)}</option>`).join("")
+        : "<option value=''>授業が登録されていません</option>";
+    }
+
+    function renderRecordList(container, items, kind, label) {
+      container.innerHTML = items.length
+        ? items.map(x => `<div class='py-1'>${formatDate(x.date)} ${escapeHtml(x.period)}限 ${label} ${escapeHtml(x.subject || "")}${x.room ? ` (${escapeHtml(x.room)})` : ""} <button class='text-rose-700 underline' data-${kind}-date='${escapeHtml(x.date)}' data-period='${escapeHtml(x.period)}'>削除</button></div>`).join("")
+        : "<div class='text-slate-400'>未登録</div>";
+      container.querySelectorAll(`button[data-${kind}-date]`).forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const date = btn.getAttribute(`data-${kind}-date`);
+          try {
+            await apiRequest(`/api/${kind}/${encodeURIComponent(date)}/${encodeURIComponent(btn.dataset.period)}`, { method: 'DELETE' });
+            await loadMakeupAndCancel();
+          } catch (e) {
+            console.error("削除失敗:", e);
+          }
+        });
+      });
+    }
+
+    async function loadMakeupAndCancel() {
+      try {
+        const [makeups, cancels] = await Promise.all([
+          apiRequest(`/api/makeup`),
+          apiRequest(`/api/cancel`),
+        ]);
+        renderRecordList(el.makeupList, makeups?.items || [], "makeup", "【補講】");
+        renderRecordList(el.cancelList, cancels?.items || [], "cancel", "【休講】");
+        await loadCancelCandidates();
+      } catch (e) {
+        console.error("補講・休講ロード失敗:", e);
+      }
+    }
+
+    async function loadCancelCandidates() {
+      const date = el.cancelDate.value;
+      if (!date) {
+        el.cancelPeriod.innerHTML = "<option value=''>先に日付を選択してください</option>";
+        return;
+      }
+      const data = await apiRequest(`/api/cancel/candidates?date=${encodeURIComponent(date)}`);
+      const items = (data?.items || []).filter(x => !x.cancelled);
+      el.cancelPeriod.innerHTML = items.length
+        ? items.map(x => `<option value='${escapeHtml(x.period)}'>${escapeHtml(x.period)}限 ${escapeHtml(x.subject)}</option>`).join("")
+        : "<option value=''>この日に休講にできる授業はありません</option>";
+    }
+
+    async function addMakeup() {
+      const date = el.makeupDate.value;
+      const period = el.makeupPeriod.value;
+      const [sourceWeekday, sourcePeriod] = (el.makeupSource.value || "").split("|");
+      if (!date || !period || !sourceWeekday) {
+        alert("補講日・時限・対象の授業を選択してください。");
+        return;
+      }
+      try {
+        await apiRequest(`/api/makeup`, {
+          method: 'POST',
+          body: JSON.stringify({
+            date,
+            period,
+            source_weekday: sourceWeekday,
+            source_period: sourcePeriod,
+            room: el.makeupRoom.value.trim() || null,
+            term: currentTerm,
+          })
+        });
+        el.makeupRoom.value = "";
+        await loadMakeupAndCancel();
+      } catch (e) {
+        console.error("補講追加失敗:", e);
+      }
+    }
+
+    async function addCancel() {
+      const date = el.cancelDate.value;
+      const period = el.cancelPeriod.value;
+      if (!date || !period) {
+        alert("休講日と授業を選択してください。");
+        return;
+      }
+      try {
+        await apiRequest(`/api/cancel`, {
+          method: 'POST',
+          body: JSON.stringify({ date, period })
+        });
+        await loadMakeupAndCancel();
+      } catch (e) {
+        console.error("休講追加失敗:", e);
+      }
     }
 
     function openClassDialog(weekday, period) {
@@ -726,7 +869,12 @@
       o.value = p;
       o.textContent = `${p}限`;
       el.ovRoomPeriod.appendChild(o);
+      el.makeupPeriod.appendChild(o.cloneNode(true));
     });
+
+    el.addMakeup.addEventListener("click", addMakeup);
+    el.addCancel.addEventListener("click", addCancel);
+    el.cancelDate.addEventListener("change", () => loadCancelCandidates().catch(() => {}));
 
     el.gmailAuthCode.value = draft.gmail_auth_code || "";
 
@@ -810,6 +958,7 @@
     loadTimetable();
     loadSettings();
     renderOverrideLists();
+    loadMakeupAndCancel();
   </script>
 </body>
 </html>

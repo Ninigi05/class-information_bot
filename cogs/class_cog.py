@@ -15,6 +15,8 @@ from utils import (
     send_long_dm,
     get_current_term,
     get_effective_term,
+    get_makeups_on_date,
+    is_class_cancelled,
     WEEKDAYS,
     WEEKDAY_MAP,
     PERIOD_TO_TIME,
@@ -511,10 +513,18 @@ class ClassCog(commands.GroupCog, name="class"):
             )
             return
         user_id = interaction.user.id
+        logger.info(f"[Command] class setday: user={user_id} {date} -> {new_weekday}")
         data = self.get_data(user_id)
-        term = get_effective_term(user_id)
-        for cls in data.get("classes_by_term", {}).get(term, []):
-            cls.setdefault("overrides", {})[date] = WEEKDAY_MAP[new_weekday]
+        # Web側の曜日上書きと同様に、前期・後期の全授業へ適用する
+        for term in (TERM_FIRST, TERM_SECOND):
+            for cls in data.get("classes_by_term", {}).get(term, []) or []:
+                cls.setdefault("overrides", {})[date] = WEEKDAY_MAP[new_weekday]
+        save_user_data(user_id, data)
+        await send_dm(
+            interaction.user,
+            f"{date} を {new_weekday} の時間割に変更しました",
+        )
+        await interaction.followup.send("曜日変更をDMに送信しました", ephemeral=True)
 
     @app_commands.command(
         name="status", description="現在のシステム判定上の学期を表示します"
@@ -579,8 +589,24 @@ class ClassCog(commands.GroupCog, name="class"):
                         "subject": cls.get("subject"),
                         "room": room,
                         "time": cls.get("time", "不明"),
+                        "mark": (
+                            "【休講】"
+                            if is_class_cancelled(data, date_str, cls.get("period"))
+                            else ""
+                        ),
                     }
                 )
+
+        for m in get_makeups_on_date(data, date_str):
+            today_classes.append(
+                {
+                    "period": m.get("period"),
+                    "subject": m.get("subject"),
+                    "room": m.get("room", "未設定"),
+                    "time": PERIOD_TO_TIME.get(str(m.get("period")), "不明"),
+                    "mark": "【補講】",
+                }
+            )
 
         # 時限順にソート
         today_classes.sort(
@@ -596,7 +622,7 @@ class ClassCog(commands.GroupCog, name="class"):
         msg = f"📅 **本日（{date_str} {day_name}）の授業一覧**\n"
         msg += "--------------------------------------\n"
         for c in today_classes:
-            msg += f"**{c['period']}限** ({c['time']}) : {c['subject']}\n"
+            msg += f"**{c['period']}限** ({c['time']}) : {c['mark']}{c['subject']}\n"
             msg += f"   📍 教室: {c['room']}\n"
 
         logger.info(

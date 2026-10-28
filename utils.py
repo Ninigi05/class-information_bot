@@ -120,6 +120,159 @@ def get_effective_term(user_id: int) -> str:
 
 
 
+def get_term_for_date(data: dict, date_str: str) -> str:
+    """指定日が属する学期を返す（term_ranges 優先、無ければ月で判定）。"""
+    term_ranges = data.get("term_ranges", {}) or {}
+    for term in (TERM_FIRST, TERM_SECOND):
+        r = term_ranges.get(term) or {}
+        if r.get("start") and r.get("end") and r["start"] <= date_str <= r["end"]:
+            return term
+    month = datetime.strptime(date_str, "%Y-%m-%d").month
+    return TERM_FIRST if 4 <= month <= 9 else TERM_SECOND
+
+
+def get_regular_classes_on_date(data: dict, term: str, date_str: str) -> list[dict]:
+    """指定日に実施される通常授業（曜日上書きを考慮、休講は除外しない）を返す。"""
+    weekday = datetime.strptime(date_str, "%Y-%m-%d").weekday()
+    result = []
+    for cls in data.get("classes_by_term", {}).get(term, []) or []:
+        day = (cls.get("overrides") or {}).get(date_str, cls.get("day"))
+        try:
+            if int(day) == weekday:
+                result.append(cls)
+        except (TypeError, ValueError):
+            continue
+    return result
+
+
+def is_class_cancelled(data: dict, date_str: str, period) -> bool:
+    """指定日・時限の通常授業が休講登録されているか。"""
+    return any(
+        c.get("date") == date_str and str(c.get("period")) == str(period)
+        for c in data.get("cancelled_classes", []) or []
+    )
+
+
+def get_makeups_on_date(data: dict, date_str: str) -> list[dict]:
+    """指定日の補講を、通知処理で通常授業と同様に扱える形のコピーで返す。"""
+    result = []
+    for m in data.get("makeup_classes", []) or []:
+        if m.get("date") != date_str:
+            continue
+        item = dict(m)
+        item["_is_makeup"] = True
+        result.append(item)
+    return result
+
+
+def _validate_date_period(date_str: str, period) -> str:
+    try:
+        datetime.strptime(date_str, "%Y-%m-%d")
+    except (TypeError, ValueError):
+        raise ValueError("日付形式が無効です。YYYY-MM-DD で指定してください")
+    period = str(period).strip()
+    if period not in PERIOD_TO_TIME:
+        raise ValueError(f"時限が無効です（{period}）")
+    return period
+
+
+def add_makeup_class(
+    data: dict,
+    date_str: str,
+    period,
+    source_day: int,
+    source_period,
+    room: str | None = None,
+    term: str | None = None,
+) -> dict:
+    """既存の授業（source_day, source_period）を指定日・時限に補講として追加する。
+
+    入力不正時は ValueError を送出する。追加したレコードを返す。
+    """
+    period = _validate_date_period(date_str, period)
+    source_period = str(source_period).strip()
+    term = normalize_term_key(term) if term else get_term_for_date(data, date_str)
+
+    source = next(
+        (
+            c
+            for c in data.get("classes_by_term", {}).get(term, []) or []
+            if str(c.get("day")) == str(source_day)
+            and str(c.get("period")) == source_period
+        ),
+        None,
+    )
+    if source is None:
+        raise ValueError(f"{term}に元となる授業が登録されていません")
+
+    makeups = data.setdefault("makeup_classes", [])
+    if any(
+        m.get("date") == date_str and str(m.get("period")) == period for m in makeups
+    ):
+        raise ValueError(f"{date_str} {period}限には既に補講が登録されています")
+
+    record = {
+        "date": date_str,
+        "period": period,
+        "subject": source.get("subject"),
+        "room": (room or "").strip() or source.get("room", "未設定"),
+        "day": int(source_day),
+        "source_period": source_period,
+        "term": term,
+    }
+    makeups.append(record)
+    makeups.sort(key=lambda m: (m.get("date", ""), str(m.get("period", ""))))
+    return record
+
+
+def remove_makeup_class(data: dict, date_str: str, period) -> dict | None:
+    makeups = data.get("makeup_classes", []) or []
+    for i, m in enumerate(makeups):
+        if m.get("date") == date_str and str(m.get("period")) == str(period):
+            return makeups.pop(i)
+    return None
+
+
+def add_cancelled_class(
+    data: dict, date_str: str, period, term: str | None = None
+) -> dict:
+    """指定日・時限の通常授業を休講にする。入力不正時は ValueError を送出する。"""
+    period = _validate_date_period(date_str, period)
+    term = normalize_term_key(term) if term else get_term_for_date(data, date_str)
+
+    target = next(
+        (
+            c
+            for c in get_regular_classes_on_date(data, term, date_str)
+            if str(c.get("period")) == period
+        ),
+        None,
+    )
+    if target is None:
+        raise ValueError(f"{date_str} {period}限に授業が登録されていません")
+    if is_class_cancelled(data, date_str, period):
+        raise ValueError(f"{date_str} {period}限は既に休講登録されています")
+
+    record = {
+        "date": date_str,
+        "period": period,
+        "subject": target.get("subject"),
+        "term": term,
+    }
+    cancels = data.setdefault("cancelled_classes", [])
+    cancels.append(record)
+    cancels.sort(key=lambda c: (c.get("date", ""), str(c.get("period", ""))))
+    return record
+
+
+def remove_cancelled_class(data: dict, date_str: str, period) -> dict | None:
+    cancels = data.get("cancelled_classes", []) or []
+    for i, c in enumerate(cancels):
+        if c.get("date") == date_str and str(c.get("period")) == str(period):
+            return cancels.pop(i)
+    return None
+
+
 def get_attendance_key(term: str, weekday: int, period: str, subject: str) -> str:
     """Generate a unique key for tracking class attendance."""
     return f"{term}|{weekday}|{period}|{subject}"

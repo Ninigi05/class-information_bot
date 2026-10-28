@@ -3,22 +3,27 @@
 """
 
 import logging
-from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from utils import (
     load_user_data,
     save_user_data,
-    get_current_term,
     normalize_term_key,
+    get_term_for_date,
+    get_regular_classes_on_date,
+    is_class_cancelled,
+    add_makeup_class,
+    remove_makeup_class,
+    add_cancelled_class,
+    remove_cancelled_class,
     TERM_FIRST,
     TERM_SECOND,
+    WEEKDAYS,
     WEEKDAY_MAP,
 )
 from web.auth import TokenData, get_current_user
 from web.schemas import (
     MakeupCreate,
-    MakeupUpdate,
     CancelCreate,
     ListResponse,
     SuccessResponse,
@@ -34,43 +39,32 @@ from web.api.notification import notify_user_change
 
 
 @router.get("/api/makeup", response_model=ListResponse)
-async def get_makeup_classes(
-    term: str = None, current_user: TokenData = Depends(get_current_user)
-):
+async def get_makeup_classes(current_user: TokenData = Depends(get_current_user)):
     """
     補講一覧を取得
 
     Returns:
-        補講リスト
+        補講リスト（日付・時限順）
     """
     try:
-        user_id = current_user.user_id
-        user_data = load_user_data(user_id)
-        selected_term = normalize_term_key(term)
-        makeup_classes = user_data.get("makeup_classes_by_term", {}).get(
-            selected_term, []
-        )
-
-        return ListResponse(
-            count=len(makeup_classes),
-            items=makeup_classes,
-        )
+        user_data = load_user_data(current_user.user_id)
+        makeup_classes = user_data.get("makeup_classes", []) or []
+        return ListResponse(count=len(makeup_classes), items=makeup_classes)
     except Exception as e:
         logger.exception(f"補講一覧取得エラー: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="取得失敗",
+            detail="補講一覧の取得に失敗しました",
         )
 
 
 @router.post("/api/makeup", response_model=SuccessResponse)
-async def add_makeup_class(
+async def add_makeup(
     makeup_data: MakeupCreate,
-    term: str = None,
     current_user: TokenData = Depends(get_current_user),
 ):
     """
-    補講を追加
+    補講を追加（指定日・時限に既存の授業を追加）
 
     Args:
         makeup_data: 補講情報
@@ -78,62 +72,54 @@ async def add_makeup_class(
     Returns:
         成功メッセージ
     """
+    if makeup_data.source_weekday not in WEEKDAY_MAP:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"無効な曜日です: {makeup_data.source_weekday}",
+        )
     try:
         user_id = current_user.user_id
         user_data = load_user_data(user_id)
-        selected_term = normalize_term_key(term)
-        user_data.setdefault("makeup_classes_by_term", {}).setdefault(selected_term, [])
-        makeup_classes = user_data["makeup_classes_by_term"][selected_term]
-        # 同じ日時の補講が存在するかチェック
-        for mc in makeup_classes:
-            if (
-                mc.get("date") == makeup_data.date
-                and mc.get("time") == makeup_data.time
-            ):
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="既に存在します",
-                )
-
-        new_makeup = {
-            "date": makeup_data.date,
-            "time": makeup_data.time,
-            "subject": makeup_data.subject,
-            "room": makeup_data.room,
-        }
-        makeup_classes.append(new_makeup)
+        try:
+            record = add_makeup_class(
+                user_data,
+                makeup_data.date,
+                makeup_data.period,
+                WEEKDAY_MAP[makeup_data.source_weekday],
+                makeup_data.source_period,
+                room=makeup_data.room,
+                term=makeup_data.term,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         save_user_data(user_id, user_data)
 
         # DM通知を送信
         msg = (
-            f"時間割の上書き（補講）を登録しました。\n\n"
-            f"・学期: {selected_term}\n"
-            f"・日付: {makeup_data.date}\n"
-            f"・時限/時刻: {makeup_data.time}\n"
-            f"・科目名: {makeup_data.subject}\n"
-            f"・教室: {makeup_data.room}"
+            f"補講を登録しました。\n\n"
+            f"・日付: {record['date']}\n"
+            f"・時限: {record['period']}限\n"
+            f"・科目名: {record['subject']}\n"
+            f"・教室: {record['room']}\n"
+            f"・元の授業: {WEEKDAYS[record['day']]} {record['source_period']}限（{record['term']}）"
         )
         await notify_user_change(user_id, msg)
 
-        return SuccessResponse(
-            message="追加しました",
-            data={"makeup": new_makeup},
-        )
+        return SuccessResponse(message="補講を追加しました", data={"makeup": record})
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"追加エラー: {e}")
+        logger.exception(f"補講追加エラー: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="失敗しました",
+            detail="補講の追加に失敗しました",
         )
 
 
-@router.delete("/api/makeup/{date}/{time}", response_model=SuccessResponse)
-async def delete_makeup_class(
+@router.delete("/api/makeup/{date}/{period}", response_model=SuccessResponse)
+async def delete_makeup(
     date: str,
-    time: str,
-    term: str = None,
+    period: str,
     current_user: TokenData = Depends(get_current_user),
 ):
     """
@@ -141,49 +127,31 @@ async def delete_makeup_class(
 
     Args:
         date: 日付（YYYY-MM-DD）
-        time: 時刻（HH:MM）
+        period: 時限
     Returns:
         成功メッセージ
     """
     try:
         user_id = current_user.user_id
         user_data = load_user_data(user_id)
-        selected_term = normalize_term_key(term)
-        makeup_classes = user_data.get("makeup_classes_by_term", {}).get(
-            selected_term, []
-        )
-
-        found = False
-        deleted_makeup_info = None
-        for i, mc in enumerate(makeup_classes):
-            if mc.get("date") == date and mc.get("time") == time:
-                deleted_makeup_info = makeup_classes.pop(i)
-                found = True
-                break
-
-        if not found:
+        removed = remove_makeup_class(user_data, date, period)
+        if removed is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="補講が見つかりません",
             )
-
-        user_data["makeup_classes_by_term"][selected_term] = makeup_classes
         save_user_data(user_id, user_data)
 
         # DM通知を送信
         msg = (
-            f"時間割の上書き（補講）を削除しました。\n\n"
-            f"・学期: {selected_term}\n"
+            f"補講を削除しました。\n\n"
             f"・日付: {date}\n"
-            f"・時限/時刻: {time}\n"
-            f"・科目名: {deleted_makeup_info.get('subject', '不明')}\n"
-            f"・教室: {deleted_makeup_info.get('room', '不明')}"
+            f"・時限: {period}限\n"
+            f"・科目名: {removed.get('subject', '不明')}"
         )
         await notify_user_change(user_id, msg)
 
-        return SuccessResponse(
-            message="補講を削除しました",
-        )
+        return SuccessResponse(message="補講を削除しました")
     except HTTPException:
         raise
     except Exception as e:
@@ -194,47 +162,74 @@ async def delete_makeup_class(
         )
 
 
-# ============ 手動休講（Cancel）エンドポイント ============
+# ============ 休講（Cancel）エンドポイント ============
 
 
 @router.get("/api/cancel", response_model=ListResponse)
-async def get_cancel_classes(
-    term: str = None, current_user: TokenData = Depends(get_current_user)
-):
+async def get_cancel_classes(current_user: TokenData = Depends(get_current_user)):
     """
-    手動休講一覧を取得
+    休講一覧を取得
 
     Returns:
-        手動休講リスト
+        休講リスト（日付・時限順）
     """
     try:
-        user_id = current_user.user_id
-        user_data = load_user_data(user_id)
-        selected_term = normalize_term_key(term)
-        cancel_classes = user_data.get("cancel_classes_by_term", {}).get(
-            selected_term, []
-        )
-
-        return ListResponse(
-            count=len(cancel_classes),
-            items=cancel_classes,
-        )
+        user_data = load_user_data(current_user.user_id)
+        cancel_classes = user_data.get("cancelled_classes", []) or []
+        return ListResponse(count=len(cancel_classes), items=cancel_classes)
     except Exception as e:
-        logger.exception(f"手動休講一覧取得エラー: {e}")
+        logger.exception(f"休講一覧取得エラー: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="手動休講一覧の取得に失敗しました",
+            detail="休講一覧の取得に失敗しました",
         )
 
 
-@router.post("/api/cancel", response_model=SuccessResponse)
-async def add_cancel_class(
-    cancel_data: CancelCreate,
+@router.get("/api/cancel/candidates", response_model=ListResponse)
+async def get_cancel_candidates(
+    date: str,
     term: str = None,
     current_user: TokenData = Depends(get_current_user),
 ):
     """
-    手動休講を追加
+    指定日に実施される通常授業（休講の候補）を取得
+
+    Args:
+        date: 日付（YYYY-MM-DD）
+    """
+    try:
+        user_data = load_user_data(current_user.user_id)
+        selected_term = (
+            normalize_term_key(term) if term else get_term_for_date(user_data, date)
+        )
+        classes = get_regular_classes_on_date(user_data, selected_term, date)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="日付形式が無効です。YYYY-MM-DD で指定してください",
+        )
+    items = sorted(
+        (
+            {
+                "period": str(c.get("period")),
+                "subject": c.get("subject"),
+                "room": c.get("room"),
+                "cancelled": is_class_cancelled(user_data, date, c.get("period")),
+            }
+            for c in classes
+        ),
+        key=lambda x: x["period"],
+    )
+    return ListResponse(count=len(items), items=items)
+
+
+@router.post("/api/cancel", response_model=SuccessResponse)
+async def add_cancel(
+    cancel_data: CancelCreate,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """
+    休講を追加（その日の授業を通知せず、授業回数にも数えない）
 
     Args:
         cancel_data: 休講情報
@@ -245,41 +240,25 @@ async def add_cancel_class(
     try:
         user_id = current_user.user_id
         user_data = load_user_data(user_id)
-        selected_term = normalize_term_key(term)
-        user_data.setdefault("cancel_classes_by_term", {}).setdefault(selected_term, [])
-        cancel_classes = user_data["cancel_classes_by_term"][selected_term]
-
-        # 同じ日付・授業の休講が存在するかチェック
-        for cc in cancel_classes:
-            if (
-                cc.get("date") == cancel_data.date
-                and cc.get("subject") == cancel_data.subject
-            ):
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="この授業の休講は既に登録されています",
-                )
-
-        new_cancel = {
-            "date": cancel_data.date,
-            "subject": cancel_data.subject,
-        }
-        cancel_classes.append(new_cancel)
+        try:
+            record = add_cancelled_class(
+                user_data, cancel_data.date, cancel_data.period, term=cancel_data.term
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         save_user_data(user_id, user_data)
 
         # DM通知を送信
         msg = (
-            f"時間割の上書き（休講）を登録しました。\n\n"
-            f"・学期: {selected_term}\n"
-            f"・日付: {cancel_data.date}\n"
-            f"・科目名: {cancel_data.subject}"
+            f"休講を登録しました。\n\n"
+            f"・日付: {record['date']}\n"
+            f"・時限: {record['period']}限\n"
+            f"・科目名: {record['subject']}\n"
+            "※この授業は通知されず、授業回数にも数えません"
         )
         await notify_user_change(user_id, msg)
 
-        return SuccessResponse(
-            message="休講を追加しました",
-            data={"cancel": new_cancel},
-        )
+        return SuccessResponse(message="休講を追加しました", data={"cancel": record})
     except HTTPException:
         raise
     except Exception as e:
@@ -290,19 +269,18 @@ async def add_cancel_class(
         )
 
 
-@router.delete("/api/cancel/{date}/{subject}", response_model=SuccessResponse)
-async def delete_cancel_class(
+@router.delete("/api/cancel/{date}/{period}", response_model=SuccessResponse)
+async def delete_cancel(
     date: str,
-    subject: str,
-    term: str = None,
+    period: str,
     current_user: TokenData = Depends(get_current_user),
 ):
     """
-    手動休講を削除
+    休講を取り消し
 
     Args:
         date: 日付（YYYY-MM-DD）
-        subject: 授業名
+        period: 時限
 
     Returns:
         成功メッセージ
@@ -310,47 +288,31 @@ async def delete_cancel_class(
     try:
         user_id = current_user.user_id
         user_data = load_user_data(user_id)
-        selected_term = normalize_term_key(term)
-        cancel_classes = user_data.get("cancel_classes_by_term", {}).get(
-            selected_term, []
-        )
-
-        found = False
-        deleted_cancel_info = None
-        for i, cc in enumerate(cancel_classes):
-            if cc.get("date") == date and cc.get("subject") == subject:
-                deleted_cancel_info = cancel_classes.pop(i)
-                found = True
-                break
-
-        if not found:
+        removed = remove_cancelled_class(user_data, date, period)
+        if removed is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="休講が見つかりません",
             )
-
-        user_data["cancel_classes_by_term"][selected_term] = cancel_classes
         save_user_data(user_id, user_data)
 
         # DM通知を送信
         msg = (
-            f"時間割の上書き（休講）を削除しました。\n\n"
-            f"・学期: {selected_term}\n"
+            f"休講を取り消しました。\n\n"
             f"・日付: {date}\n"
-            f"・科目名: {deleted_cancel_info.get('subject', '不明')}"
+            f"・時限: {period}限\n"
+            f"・科目名: {removed.get('subject', '不明')}"
         )
         await notify_user_change(user_id, msg)
 
-        return SuccessResponse(
-            message="休講を削除しました",
-        )
+        return SuccessResponse(message="休講を取り消しました")
     except HTTPException:
         raise
     except Exception as e:
         logger.exception(f"休講削除エラー: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="休講の削除に失敗しました",
+            detail="休講の取り消しに失敗しました",
         )
 
 
@@ -374,7 +336,6 @@ async def bulk_save_overrides(
         user_data["day_overrides"] = bulk_data.day_overrides
         user_data["room_overrides"] = bulk_data.room_overrides
 
-        save_user_data(user_id, user_data)
         # Web設定された day_overrides を各クラスの overrides に同期する
         if bulk_data.day_overrides:
             for term_key in [TERM_FIRST, TERM_SECOND]:
@@ -387,6 +348,8 @@ async def bulk_save_overrides(
                         if d and w and w in WEEKDAY_MAP:
                             overrides_dict[d] = WEEKDAY_MAP[w]
 
+        # 同期後のデータを保存する
+        save_user_data(user_id, user_data)
 
         # DM通知を送信
         msg = (
@@ -411,4 +374,3 @@ async def bulk_save_overrides(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="上書き設定の保存に失敗しました",
         )
-

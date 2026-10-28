@@ -1117,6 +1117,7 @@ class ClassBot(commands.Bot):
             "cogs.exam_cog",
             "cogs.setting_cog",
             "cogs.notification_cog",
+            "cogs.makeup_cog",
         ]
 
         loaded_cogs = []
@@ -1181,12 +1182,16 @@ class ClassBot(commands.Bot):
             )
 
             lines.append("===  補講・休講管理 ===")
-            lines.append("• /makeup add date time subject room\n  → 補講を追加します")
-            lines.append("• /makeup remove date time\n  → 補講を削除します")
+            lines.append(
+                "• /makeup add date period source [room]\n  → 指定日・時限に登録済みの授業を補講として追加します（元の授業の回数に加算）"
+            )
+            lines.append("• /makeup remove target\n  → 補講を削除します")
             lines.append("• /makeup list\n  → 補講一覧を表示します")
-            lines.append("• /cancel add date subject\n  → 手動で休講を追加します")
-            lines.append("• /cancel remove date subject\n  → 手動休講を削除します")
-            lines.append("• /cancel list\n  → 手動休講一覧を表示します\n")
+            lines.append(
+                "• /cancel add date period\n  → 指定日の授業を休講にします（通知せず、回数にも数えません）"
+            )
+            lines.append("• /cancel remove target\n  → 休講を取り消します")
+            lines.append("• /cancel list\n  → 休講一覧を表示します\n")
 
             lines.append("===  試験時間割（/exam） ===")
             lines.append("• /exam create name start end\n  → 試験用時間割を作成します")

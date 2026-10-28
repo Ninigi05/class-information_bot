@@ -48,58 +48,26 @@ class ClassResponse(ClassBase):
 # ============ 補講（Makeup）関連 ============
 
 
-class MakeupBase(BaseModel):
-    """補講の基本情報"""
+class MakeupCreate(BaseModel):
+    """補講新規作成リクエスト（指定日・時限に既存の授業を追加）"""
 
-    date: str = Field(..., description="日付（YYYY-MM-DD）")
-    time: str = Field(..., description="時刻（HH:MM）")
-    subject: str = Field(..., description="授業名")
-    room: str = Field(..., description="教室")
-
-
-class MakeupCreate(MakeupBase):
-    """補講新規作成リクエスト"""
-
-    pass
+    date: str = Field(..., description="補講日（YYYY-MM-DD）")
+    period: str = Field(..., description="補講を行う時限（1〜6）")
+    source_weekday: str = Field(..., description="元の授業の曜日（月曜日〜日曜日）")
+    source_period: str = Field(..., description="元の授業の時限（1〜6）")
+    room: Optional[str] = Field(None, description="教室（未指定時は元の授業の教室）")
+    term: Optional[str] = Field(None, description="元の授業の学期（未指定時は日付から判定）")
 
 
-class MakeupUpdate(BaseModel):
-    """補講更新リクエスト"""
-
-    date: Optional[str] = None
-    time: Optional[str] = None
-    subject: Optional[str] = None
-    room: Optional[str] = None
+# ============ 休講（Cancel）関連 ============
 
 
-class MakeupResponse(MakeupBase):
-    """補講情報レスポンス"""
+class CancelCreate(BaseModel):
+    """休講新規作成リクエスト（指定日・時限の通常授業を休講にする）"""
 
-    class Config:
-        from_attributes = True
-
-
-# ============ 手動休講（Cancel）関連 ============
-
-
-class CancelBase(BaseModel):
-    """休講の基本情報"""
-
-    date: str = Field(..., description="日付（YYYY-MM-DD）")
-    subject: str = Field(..., description="授業名")
-
-
-class CancelCreate(CancelBase):
-    """休講新規作成リクエスト"""
-
-    pass
-
-
-class CancelResponse(CancelBase):
-    """休講情報レスポンス"""
-
-    class Config:
-        from_attributes = True
+    date: str = Field(..., description="休講日（YYYY-MM-DD）")
+    period: str = Field(..., description="休講になる授業の時限（1〜6）")
+    term: Optional[str] = Field(None, description="学期（未指定時は日付から判定）")
 
 
 # ============ 試験時間割（Exam Schedule）関連 ============

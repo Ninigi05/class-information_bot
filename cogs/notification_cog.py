@@ -16,10 +16,14 @@ from utils import (
     send_dm,
     send_long_dm,
     get_current_term,
+    get_makeups_on_date,
+    is_class_cancelled,
     WEEKDAYS,
     WEEKDAY_MAP,
     PERIOD_TO_TIME,
     DEFAULT_NOTIFY,
+    TERM_FIRST,
+    TERM_SECOND,
 )
 
 BASE_DIR = os.getcwd()
@@ -147,8 +151,6 @@ class NotificationCog(commands.Cog):
                     data.get("exam_schedules_by_term", {}).get(term, []) or []
                 )
 
-                # 休講・上書き設定の読み込み
-                manual_cancellations = data.get("manual_cancellations", []) or []
                 user_notify = data.get("notify_settings", {}) or {}
 
                 # 試験期間チェック
@@ -176,22 +178,11 @@ class NotificationCog(commands.Cog):
                         c
                         for c in active_exam.get("classes", [])
                         if c.get("day") == target_weekday
+                        and not is_class_cancelled(data, today_str, c.get("period"))
                     ]
-                    makeups_today = [
-                        m
-                        for m in data.get("makeup_classes", [])
-                        if m.get("date") == today_str
-                    ]
-                    final_classes = list(exam_classes_today)
-                    for m in makeups_today:
-                        final_classes.append(
-                            {
-                                "period": m.get("time", "?"),
-                                "time": m.get("time"),
-                                "subject": m.get("subject"),
-                                "room": m.get("room", "未設定"),
-                            }
-                        )
+                    final_classes = exam_classes_today + get_makeups_on_date(
+                        data, today_str
+                    )
 
                     exam_cfg = user_notify.get("exam") or DEFAULT_NOTIFY["exam"]
                     offsets = (
@@ -241,7 +232,11 @@ class NotificationCog(commands.Cog):
                             for cls_item in sorted(
                                 final_classes, key=lambda x: str(x.get("period"))
                             ):
-                                msg += f"{cls_item.get('period')}限 {cls_item.get('subject')} ({cls_item.get('room', '未設定')})\n"
+                                mark = "【補講】" if cls_item.get("_is_makeup") else ""
+                                msg += f"{cls_item.get('period')}限 {mark}{cls_item.get('subject')} ({cls_item.get('room', '未設定')})\n"
+                            for cc in data.get("cancelled_classes", []) or []:
+                                if cc.get("date") == today_str:
+                                    msg += f"{cc.get('period')}限 【休講】{cc.get('subject')}\n"
                             await send_long_dm(user, msg)
                             morning_marker.setdefault(str(user_id), {})[
                                 today_str
@@ -250,18 +245,16 @@ class NotificationCog(commands.Cog):
 
                 else:
                     # --- 通常通知 ---
+                    # 休講登録された授業は通知せず、カウントもしない
                     today_classes = [
-                        c for c in classes if c.get("day") == target_weekday
+                        c
+                        for c in classes
+                        if c.get("day") == target_weekday
+                        and not is_class_cancelled(data, today_str, c.get("period"))
                     ]
-                    makeups_today = [
-                        m
-                        for m in data.get("makeup_classes", [])
-                        if m.get("date") == today_str
-                    ]
-                    final_classes = list(today_classes)
-                    for m in makeups_today:
-                        m["_is_makeup"] = True
-                        final_classes.append(m)
+                    final_classes = today_classes + get_makeups_on_date(
+                        data, today_str
+                    )
 
                     normal_cfg = user_notify.get("normal") or DEFAULT_NOTIFY["normal"]
                     offsets = (
@@ -307,7 +300,11 @@ class NotificationCog(commands.Cog):
                                             data.get("class_attendance_count", {}) or {}
                                         )
                                         term_counts = class_counts.setdefault(term, {})
-                                        subj_key = f"{cls_item.get('day')}|{cls_item.get('period')}|{cls_item.get('subject')}"
+                                        # 補講は元の授業（曜日・時限）の回数として加算する
+                                        src_period = cls_item.get(
+                                            "source_period", cls_item.get("period")
+                                        )
+                                        subj_key = f"{cls_item.get('day')}|{src_period}|{cls_item.get('subject')}"
                                         current_count = term_counts.get(subj_key, 0) + 1
                                         term_counts[subj_key] = current_count
                                         data["class_attendance_count"] = class_counts
@@ -326,8 +323,8 @@ class NotificationCog(commands.Cog):
                                                 for c in classes
                                                 if not (
                                                     c.get("day") == cls_item.get("day")
-                                                    and c.get("period")
-                                                    == cls_item.get("period")
+                                                    and str(c.get("period"))
+                                                    == str(src_period)
                                                     and c.get("subject")
                                                     == cls_item.get("subject")
                                                 )
@@ -350,7 +347,11 @@ class NotificationCog(commands.Cog):
                             for cls_item in sorted(
                                 final_classes, key=lambda x: str(x.get("period"))
                             ):
-                                msg += f"{cls_item.get('period')}限 {cls_item.get('subject')} ({cls_item.get('room', '未設定')})\n"
+                                mark = "【補講】" if cls_item.get("_is_makeup") else ""
+                                msg += f"{cls_item.get('period')}限 {mark}{cls_item.get('subject')} ({cls_item.get('room', '未設定')})\n"
+                            for cc in data.get("cancelled_classes", []) or []:
+                                if cc.get("date") == today_str:
+                                    msg += f"{cc.get('period')}限 【休講】{cc.get('subject')}\n"
                             await send_long_dm(user, msg)
                             morning_marker.setdefault(str(user_id), {})[
                                 today_str
