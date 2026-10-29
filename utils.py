@@ -145,6 +145,22 @@ def get_regular_classes_on_date(data: dict, term: str, date_str: str) -> list[di
     return result
 
 
+def get_room_for_date(data: dict, cls: dict, date_str: str) -> str:
+    """指定日の教室を返す（/class setroom の授業別設定 → Webの教室上書き → 通常の教室）。"""
+    room_overrides = cls.get("room_overrides") or {}
+    if room_overrides.get(date_str):
+        return room_overrides[date_str]
+    for r in data.get("room_overrides", []) or []:
+        if (
+            isinstance(r, dict)
+            and r.get("date") == date_str
+            and str(r.get("period")) == str(cls.get("period"))
+            and r.get("room")
+        ):
+            return r["room"]
+    return cls.get("room") or "未設定"
+
+
 def is_class_cancelled(data: dict, date_str: str, period) -> bool:
     """指定日・時限の通常授業が休講登録されているか。"""
     return any(

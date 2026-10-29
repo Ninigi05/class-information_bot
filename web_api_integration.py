@@ -26,6 +26,7 @@ from utils import (
     TERM_FIRST,
     TERM_SECOND,
     normalize_term_key,
+    get_current_term,
 )
 from api_security import verify_api_key
 from web_link_service import create_link_key
@@ -339,6 +340,12 @@ def _validate_weekday_and_period(weekday: str, period: str) -> None:
         )
 
 
+def _term_classes(user_data: dict, user_id: int, term: Optional[str]) -> list[dict]:
+    """指定学期（未指定時は現在の学期）の授業リストを返す（user_data 内のリストそのもの）。"""
+    selected = normalize_term_key(term) if term else get_current_term(user_id)
+    return user_data.setdefault("classes_by_term", {}).setdefault(selected, [])
+
+
 def _find_class_index(classes: list[dict], day: int, period: str) -> int:
     for i, c in enumerate(classes):
         if int(c.get("day", -1)) == day and str(c.get("period")) == str(period):
@@ -460,6 +467,7 @@ async def issue_link_key(payload: dict[str, Any]):
 @web_app.get("/api/user/{user_id}/classes")
 async def get_user_classes(
     user_id: int,
+    term: Optional[str] = None,
     _: bool = Depends(verify_api_key),
 ):
     """
@@ -474,7 +482,7 @@ async def get_user_classes(
     """
     try:
         user_data = load_user_data(user_id)
-        classes = user_data.get("classes", [])
+        classes = _term_classes(user_data, user_id, term)
 
         # weekday 番号を日本語に変換（表示用）
         for cls in classes:
@@ -504,13 +512,14 @@ async def get_user_classes(
 async def upsert_user_class(
     user_id: int,
     payload: ClassUpsertRequest,
+    term: Optional[str] = None,
     _: bool = Depends(verify_api_key),
 ):
     """授業を追加、存在する場合は上書きする。"""
     try:
         _validate_weekday_and_period(payload.weekday, payload.period)
         user_data = load_user_data(user_id)
-        classes = user_data.get("classes", [])
+        classes = _term_classes(user_data, user_id, term)
         day = WEEKDAY_MAP[payload.weekday]
         idx = _find_class_index(classes, day, payload.period)
 
@@ -528,7 +537,6 @@ async def upsert_user_class(
             classes.append(item)
             action = "created"
 
-        user_data["classes"] = classes
         save_user_data(user_id, user_data)
         logger.info(
             "授業 upsert: user_id=%s weekday=%s period=%s action=%s",
@@ -558,13 +566,14 @@ async def delete_user_class(
     user_id: int,
     weekday: str,
     period: str,
+    term: Optional[str] = None,
     _: bool = Depends(verify_api_key),
 ):
     """指定曜日・時限の授業を削除する。"""
     try:
         _validate_weekday_and_period(weekday, period)
         user_data = load_user_data(user_id)
-        classes = user_data.get("classes", [])
+        classes = _term_classes(user_data, user_id, term)
         day = WEEKDAY_MAP[weekday]
         idx = _find_class_index(classes, day, period)
         if idx < 0:
@@ -574,7 +583,6 @@ async def delete_user_class(
             )
 
         removed = classes.pop(idx)
-        user_data["classes"] = classes
         save_user_data(user_id, user_data)
         logger.info(
             "授業 delete: user_id=%s weekday=%s period=%s", user_id, weekday, period
@@ -597,6 +605,7 @@ async def delete_user_class(
 @web_app.get("/api/user/{user_id}/schedule-table")
 async def get_schedule_table(
     user_id: int,
+    term: Optional[str] = None,
     _: bool = Depends(verify_api_key),
 ):
     """
@@ -611,7 +620,7 @@ async def get_schedule_table(
     """
     try:
         user_data = load_user_data(user_id)
-        classes = user_data.get("classes", [])
+        classes = _term_classes(user_data, user_id, term)
 
         # テーブル形式に変換
         table: dict[str, dict[str, Any | None]] = {}

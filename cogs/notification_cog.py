@@ -17,6 +17,7 @@ from utils import (
     send_long_dm,
     get_current_term,
     get_makeups_on_date,
+    get_room_for_date,
     is_class_cancelled,
     WEEKDAYS,
     WEEKDAY_MAP,
@@ -175,7 +176,7 @@ class NotificationCog(commands.Cog):
                 if active_exam:
                     # --- 試験期間通知 ---
                     exam_classes_today = [
-                        c
+                        {**c, "room": get_room_for_date(data, c, today_str)}
                         for c in active_exam.get("classes", [])
                         if c.get("day") == target_weekday
                         and not is_class_cancelled(data, today_str, c.get("period"))
@@ -247,7 +248,7 @@ class NotificationCog(commands.Cog):
                     # --- 通常通知 ---
                     # 休講登録された授業は通知せず、カウントもしない
                     today_classes = [
-                        c
+                        {**c, "room": get_room_for_date(data, c, today_str)}
                         for c in classes
                         if c.get("day") == target_weekday
                         and not is_class_cancelled(data, today_str, c.get("period"))

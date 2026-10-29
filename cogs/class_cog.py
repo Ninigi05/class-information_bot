@@ -16,6 +16,7 @@ from utils import (
     get_current_term,
     get_effective_term,
     get_makeups_on_date,
+    get_room_for_date,
     is_class_cancelled,
     WEEKDAYS,
     WEEKDAY_MAP,
@@ -536,15 +537,15 @@ class ClassCog(commands.GroupCog, name="class"):
 
         # 判定プロセスの可視化
         data = self.get_data(user_id)
-        settings = data.get("settings", {})
-        month = datetime.now().month
+        now = datetime.now()
+        today_str = now.strftime("%Y-%m-%d")
 
-        detail = ""
-        term_settings = settings.get(term, {})
-        if term_settings.get("start_date") and term_settings.get("end_date"):
-            detail = f"（Web設定の期間内: {term_settings['start_date']} ～ {term_settings['end_date']}）"
+        term_range = (data.get("term_ranges", {}) or {}).get(term) or {}
+        start, end = term_range.get("start"), term_range.get("end")
+        if start and end and start <= today_str <= end:
+            detail = f"（学期の期間設定による判定: {start} ～ {end}）"
         else:
-            detail = f"（月による判定: {month}月）"
+            detail = f"（月による判定: {now.month}月）"
 
         logger.info(f"[Command] class status: user={user_id} -> result={term}")
         await interaction.response.send_message(
@@ -578,10 +579,7 @@ class ClassCog(commands.GroupCog, name="class"):
 
             if effective_day == day_idx:
                 # 教室の個別変更確認
-                room = cls.get("room", "未設定")
-                room_overrides = cls.get("room_overrides") or {}
-                if date_str in room_overrides:
-                    room = room_overrides[date_str]
+                room = get_room_for_date(data, cls, date_str)
 
                 today_classes.append(
                     {

@@ -31,6 +31,8 @@ from utils import (
     send_long_dm,
     WEEKDAY_MAP,
     get_current_term,
+    get_term_for_date,
+    get_regular_classes_on_date,
     normalize_term_key,
     TERM_FIRST,
     TERM_SECOND,
@@ -513,7 +515,6 @@ def fetch_cancellation_emails(user_id):
             raw_list.append({"subject": subject_hdr, "body": body_text})
 
         user_data = load_user_data(user_id)
-        classes = user_data.get("classes", [])
 
         matches = []
         for raw in raw_list:
@@ -527,9 +528,12 @@ def fetch_cancellation_emails(user_id):
                 continue
 
             # 以下、休講のマッチングロジック
+            # メールの日付が属する学期の、その日に実施される授業（曜日変更を反映）と照合する
             try:
-                parsed_date = datetime.fromisoformat(parsed["date"]).date()
-                parsed_wd = parsed_date.weekday()
+                date_str = datetime.fromisoformat(parsed["date"]).date().isoformat()
+                classes = get_regular_classes_on_date(
+                    user_data, get_term_for_date(user_data, date_str), date_str
+                )
             except Exception:
                 continue
 
@@ -542,13 +546,6 @@ def fetch_cancellation_emails(user_id):
 
             found = False
             for cls in classes:
-                try:
-                    cls_day = int(cls.get("day"))
-                except Exception:
-                    continue
-                if cls_day != parsed_wd:
-                    continue
-
                 cls_subject = cls.get("subject", "") or ""
                 cls_period = cls.get("period")
 
