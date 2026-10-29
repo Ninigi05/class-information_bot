@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Class information bot | 授業登録 Webダッシュボード</title>
-  <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+  <script src="/vendor/tailwindcss-browser-4.3.3.js"></script>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
   <main class="max-w-6xl mx-auto p-4 md:p-8 space-y-6">
@@ -668,16 +668,24 @@
     async function saveGmailSettings() {
       try {
         const authCode = (el.gmailAuthCode.value || "").trim();
+        if (!authCode) {
+          alert("認証コードを入力してください。");
+          return;
+        }
+        // 認証URL発行時の state と一緒に送り、サーバー側で本人の認証か照合する
         await apiRequest(`/api/settings/gmail`, {
           method: 'POST',
-          body: JSON.stringify({ gmail_auth_code: authCode })
+          body: JSON.stringify({ gmail_auth_code: authCode, gmail_auth_state: draft.gmail_auth_state || null })
         });
 
-        draft.gmail_auth_code = authCode;
+        // 使用済みのコードはブラウザに残さない
+        draft.gmail_auth_code = "";
+        draft.gmail_auth_state = "";
+        el.gmailAuthCode.value = "";
         persist();
-        alert("Gmail認証設定を保存しました。Bot側へも自動的に同期されました。");
+        alert("Gmail連携が完了しました。");
       } catch (e) {
-        alert("Gmail認証設定の保存に失敗しました。");
+        console.error("Gmail連携失敗:", e);
       }
     }
     async function handleDelete() {
@@ -739,7 +747,7 @@
 
     function renderOverrideLists() {
       el.dayOverrideList.innerHTML = draft.day_overrides.length
-        ? draft.day_overrides.map((x, i) => `<div class='py-1'>${x.date} → ${x.weekday} <button class='text-rose-700 underline' data-day-rm='${i}'>削除</button></div>`).join("")
+        ? draft.day_overrides.map((x, i) => `<div class='py-1'>${escapeHtml(x.date)} → ${escapeHtml(x.weekday)} <button class='text-rose-700 underline' data-day-rm='${i}'>削除</button></div>`).join("")
         : "<div class='text-slate-400'>未設定</div>";
       el.roomOverrideList.innerHTML = draft.room_overrides.length
         ? draft.room_overrides.map((x, i) => `<div class='py-1'>${x.date} ${x.period}限 → ${escapeHtml(x.room)} <button class='text-rose-700 underline' data-room-rm='${i}'>削除</button></div>`).join("")
@@ -761,18 +769,12 @@
       });
     }
 
+    // ログイン中の利用者に紐付けた認証URLを取得する（本人以外はコードを使えない）
     async function fetchGmailAuthUrl() {
-      let res;
-      try {
-        res = await fetch(`${window.location.origin}/api/public/gmail-auth-url`);
-      } catch (e) {
-        throw new Error(`バックエンドに接続できません: ${window.location.origin}`);
-      }
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || "Gmail認証URLの取得に失敗しました");
-      }
-      return res.json();
+      const data = await apiRequest(`/api/settings/gmail/auth-url`);
+      draft.gmail_auth_state = data.state;
+      persist();
+      return data;
     }
 
     // timetableData（曜日時限マップ）をフラットな classes 配列に変換

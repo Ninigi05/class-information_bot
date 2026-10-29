@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ログイン | 授業登録 Web</title>
-  <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+  <script src="/vendor/tailwindcss-browser-4.3.3.js"></script>
 </head>
 <body class="bg-slate-100 text-slate-800 flex items-center justify-center min-h-screen">
   <div class="max-w-md w-full bg-white rounded-2xl shadow-lg border border-slate-200 p-8 space-y-6">
@@ -39,11 +39,18 @@
   </div>
 
   <script>
+    // 画面へのデバッグ表示は ?debug=1 のときだけ行う
+    const SHOW_DEBUG = new URLSearchParams(window.location.search).get('debug') === '1';
+
     function log(msg) {
       console.log('[Auth Log]', msg);
+      if (!SHOW_DEBUG) return;
       const debugEl = document.getElementById('debug-info');
       debugEl.classList.remove('hidden');
-      debugEl.innerHTML += `<div>${new Date().toLocaleTimeString()}: ${msg}</div>`;
+      // HTML として解釈させない（XSS 対策）
+      const line = document.createElement('div');
+      line.textContent = `${new Date().toLocaleTimeString()}: ${msg}`;
+      debugEl.appendChild(line);
     }
 
     // グローバルなエラーハンドリング

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="google-site-verification" content="GYcBr85bd_gvAGQdALnQMxhxpf36t6_s8N8xk_PpmNc" />
   <title>Class information bot | 授業登録 Web</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="./vendor/tailwindcss-3.4.17.js"></script>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
   <main class="max-w-6xl mx-auto p-4 md:p-8 space-y-6">
@@ -252,7 +252,7 @@
 
     function renderOverrideLists() {
       el.dayOverrideList.innerHTML = draft.day_overrides.length
-        ? draft.day_overrides.map((x, i) => `<div class='py-1'>${x.date} → ${x.weekday} <button class='text-rose-700 underline' data-day-rm='${i}'>削除</button></div>`).join("")
+        ? draft.day_overrides.map((x, i) => `<div class='py-1'>${escapeHtml(x.date)} → ${escapeHtml(x.weekday)} <button class='text-rose-700 underline' data-day-rm='${i}'>削除</button></div>`).join("")
         : "<div class='text-slate-400'>未設定</div>";
       el.roomOverrideList.innerHTML = draft.room_overrides.length
         ? draft.room_overrides.map((x, i) => `<div class='py-1'>${x.date} ${x.period}限 → ${escapeHtml(x.room)} <button class='text-rose-700 underline' data-room-rm='${i}'>削除</button></div>`).join("")
@@ -285,7 +285,11 @@
         const err = await res.json().catch(() => ({}));
         throw new Error(err.detail || "Gmail認証URLの取得に失敗しました");
       }
-      return res.json();
+      const data = await res.json();
+      // コード交換時に本人の認証か照合するため、state を連携キーに含めて送る
+      draft.gmail_auth_state = data.state || "";
+      persist();
+      return data;
     }
 
     async function issueLinkKey(feature) {

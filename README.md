@@ -168,6 +168,9 @@ Discord のスラッシュコマンドと Web ダッシュボードの両方か�
 3. `/mail setcode code:（コード）` で連携が完了します。
 4. `/mail fetch` で、直近 14 日間の件名に「休講・授業変更・曜日変更・振替」を含むメールを調べ、結果を DM で受け取ります。
 
+- 認証 URL は 15 分間有効です。`/mail auth` を実行した本人しか、そのコードで連携できません。
+- Web ダッシュボードからも「認証URLを取得」→ コードを貼り付け →「Gmail認証を保存する」で連携できます。
+
 `/mail fetch` は結果を表示するだけで、時間割には自動で反映しません。必要に応じて `/cancel add` や `/class setday` で登録してください。
 
 ### 10. ログインせずに Web で入力して取り込む（連携キー）
@@ -180,6 +183,7 @@ Discord のスラッシュコマンドと Web ダッシュボードの両方か�
 
 - キーは 10 文字・**1 回限り**・**24 時間有効**です。
 - キーで取り込むと、その機能の既存データは Web の内容で置き換わります。
+- Gmail 認証を含める場合は、同じページで「認証URLを取得」してから 15 分以内にキーを発行し、取り込んでください。
 
 ### よくあるつまずき
 
@@ -346,6 +350,14 @@ Discord のスラッシュコマンドと Web ダッシュボードの両方か�
 - 機能別キーは、その機能に関するデータだけを取り込みます。「全体」は前期・後期両方の時間割を置き換えます。
 - 授業回数の目標を取り込むと、対象学期のカウントは 0 に戻ります。
 
+### Gmail 認証
+
+- Google OAuth の PKCE を使います。認証 URL を発行するとき、検証用の値（`code_verifier`）をサーバーのメモリに 15 分間保持し、コードを交換するときに照合します。そのため、第三者が他人の認証コードを手に入れても、自分のアカウントに紐付けることはできません。
+- `/mail auth` とログイン後のダッシュボードで発行した認証は、その利用者に紐付きます。ほかの利用者はそのコードを使えません。
+- ログイン不要ページで発行した認証は `state` で識別します。ページは `state` を下書きに保存し、連携キーに含めて送ります。`state` のない古い形式のキーでは、Gmail 連携を行いません。
+- 同じ利用者が認証 URL を発行し直すと、古い URL は無効になります。Bot を再起動した場合も、発行済みの認証は無効になります。
+- 認証コードはサーバーに保存しません。トークンだけを `gmail_tokens/` に保存します。
+
 ### データの保存
 
 データは利用者ごとに作業ディレクトリの `user_<DiscordユーザーID>.json` に保存します（データベースは使いません）。主なキーは次のとおりです。
@@ -395,6 +407,19 @@ Bot と同じプロセスで FastAPI の Web サーバー（初期値ポート 8
 
 `docs/` は GitHub Pages 公開用の静的ページのコピーです。
 
+### セキュリティ
+
+- **外部スクリプトを使わない**：Tailwind は版を固定して `web/vendor/`（GitHub Pages 用は `docs/vendor/`）に置き、自サーバーから配信します。
+- **セキュリティヘッダー**：すべてのレスポンスに次のヘッダーを付けます。
+  - `Content-Security-Policy`：スクリプト・通信・画像などを自オリジンに限定し、iframe への埋め込みを禁止
+  - `X-Content-Type-Options: nosniff`
+  - `X-Frame-Options: DENY`
+  - `Referrer-Policy: strict-origin-when-cross-origin`
+  - インラインスクリプトがあるため、CSP の `script-src` には `'unsafe-inline'` を含みます。
+- **HTTPS**：プロキシ（Cloudflare Tunnel など）経由で HTTP（`X-Forwarded-Proto: http`）のアクセスが来たら、HTTPS へ 308 でリダイレクトします。HTTPS のアクセスには `Strict-Transport-Security: max-age=31536000` を付けます。`localhost` への直接アクセスは HTTP のまま使えます。
+- **API ドキュメント**：`/docs`・`/redoc`・`/openapi.json` は、環境変数 `DEBUG=true` のときだけ公開します。
+- **ログイン画面のデバッグ表示**：`/login` と `/auth/callback` の画面上のデバッグ表示は、URL に `?debug=1` を付けたときだけ出します。URL 由来の値は HTML として解釈しません。
+
 ### ログイン
 
 Discord OAuth2（スコープ `identify` のみ）でログインし、サーバーが 30 日有効の JWT を発行します。ダッシュボードは JWT を `Authorization: Bearer` ヘッダーで送ります。
@@ -422,7 +447,8 @@ Discord OAuth2（スコープ `identify` のみ）でログインし、サーバ
 | GET / PUT | `/api/settings` | 設定の取得／通知設定の更新 |
 | POST | `/api/settings/period-time` | 時限の開始時刻 |
 | POST | `/api/settings/term` | 学期の期間と授業回数 |
-| POST | `/api/settings/gmail` | Gmail 認証コード |
+| GET | `/api/settings/gmail/auth-url` | ログイン中の利用者に紐付けた Gmail 認証 URL と `state` |
+| POST | `/api/settings/gmail` | Gmail 認証コード（と `state`）をトークンに交換して連携を完了 |
 
 補講の追加（`POST /api/makeup`）の例：
 
@@ -445,7 +471,7 @@ Discord OAuth2（スコープ `identify` のみ）でログインし、サーバ
 | メソッド | パス | 内容 |
 | --- | --- | --- |
 | GET | `/api/health` | ヘルスチェック |
-| GET | `/api/public/gmail-auth-url` | Gmail 認証 URL |
+| GET | `/api/public/gmail-auth-url` | Gmail 認証 URL と `state`（ログイン不要ページ用） |
 | POST | `/api/public/issue-link-key` | 連携キーの発行 |
 
 ### API（API キーが必要：`X-API-Key` ヘッダー、旧形式）
@@ -486,7 +512,8 @@ Discord OAuth2（スコープ `identify` のみ）でログインし、サーバ
 | `CORS_ORIGIN_REGEX` | | 許可するオリジンの正規表現（初期値 `*.github.io`） |
 | `API_KEY` | 旧 API 使用時 | `X-API-Key` で照合するキー |
 | `GMAIL_CREDENTIALS` | | Google OAuth クライアント JSON のパス（未指定時は `client_secret*.json` などを自動検出） |
-| `GMAIL_REDIRECT_URI` | | Gmail 認証のリダイレクト先 |
+| `GMAIL_REDIRECT_URI` | | Gmail 認証のリダイレクト先（初期値 `https://ninigi05.github.io/oauth-redirect/`） |
+| `DEBUG` | | `true` で `/docs`・`/redoc`・`/openapi.json` を公開（本番では設定しない） |
 | `DISCORD_FORCE_IPV4` / `AIOHTTP_DNS_TTL` | | Discord 接続の調整（初期値 `1` / `60`） |
 | `TUNNEL_TOKEN` | Docker 時 | Cloudflare Tunnel のトークン |
 
@@ -531,6 +558,7 @@ cogs/
   setting_cog.py         /setting
 web_api_integration.py   Bot と一緒に動く FastAPI アプリ（ページ配信・公開 API・旧 API）
 web_link_service.py      連携キーの発行・消費
+gmail_oauth.py           Gmail 認証（PKCE）の URL 発行・コード交換
 api_security.py          旧 API の API キー認証
 web/
   api/                   ダッシュボード用 API（classes, exams, makeup, settings, notification）
@@ -538,6 +566,7 @@ web/
   schemas.py             API のリクエスト／レスポンス定義
   templates/             ログイン・コールバック・ダッシュボード
   *.html                 ログイン不要のページ
+  vendor/                版を固定した Tailwind（自サーバーから配信）
   app.py                 単体起動用の FastAPI アプリ（main.py からは使われない）
 docs/                    GitHub Pages 用の静的ページ
 scripts/                 Windows 用 Quick Tunnel 自動起動スクリプト

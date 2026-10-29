@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>認証中 | 授業登録 Web</title>
-  <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+  <script src="/vendor/tailwindcss-browser-4.3.3.js"></script>
 </head>
 <body class="bg-slate-100 text-slate-800 flex items-center justify-center min-h-screen">
   <div class="max-w-md w-full bg-white rounded-2xl shadow-lg border border-slate-200 p-8 text-center space-y-4">
@@ -13,14 +13,22 @@
     </div>
     <h1 class="text-xl font-bold text-slate-900">ログイン処理中...</h1>
     <p class="text-sm text-slate-600">Discordでの認証情報を検証しています。しばらくお待ちください。</p>
-    <div id="debug-info" class="mt-4 p-2 bg-slate-800 text-green-400 text-xs font-mono rounded overflow-auto max-h-48 text-left"></div>
+    <div id="debug-info" class="hidden mt-4 p-2 bg-slate-800 text-green-400 text-xs font-mono rounded overflow-auto max-h-48 text-left"></div>
   </div>
 
   <script>
+    // 画面へのデバッグ表示は ?debug=1 のときだけ行う
+    const SHOW_DEBUG = new URLSearchParams(window.location.search).get('debug') === '1';
+
     function log(msg) {
       console.log('[Callback Log]', msg);
+      if (!SHOW_DEBUG) return;
       const debugEl = document.getElementById('debug-info');
-      debugEl.innerHTML += `<div>${new Date().toLocaleTimeString()}: ${msg}</div>`;
+      debugEl.classList.remove('hidden');
+      // URL 由来の値を含むため、HTML として解釈させない（XSS 対策）
+      const line = document.createElement('div');
+      line.textContent = `${new Date().toLocaleTimeString()}: ${msg}`;
+      debugEl.appendChild(line);
     }
 
     window.onload = async () => {
@@ -57,7 +65,7 @@
         try {
           log('/api/auth/login へリクエスト送信中...');
           // 手順 3, 4, 5 をバックエンドに依頼
-          const response = await fetch('/api/auth/login?code=' + code, {
+          const response = await fetch('/api/auth/login?code=' + encodeURIComponent(code), {
             method: 'POST'
           });
           log(`レスポンスステータス: ${response.status}`);

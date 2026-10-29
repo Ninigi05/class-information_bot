@@ -22,13 +22,14 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from googleapiclient.discovery import build  # type: ignore[import-untyped]
 from google.auth.transport.requests import Request
-from google_auth_oauthlib.flow import Flow  # type: ignore[import-untyped]
+import gmail_oauth
 
 from utils import (
     load_user_data,
     save_user_data,
     send_dm,
     send_long_dm,
+    WEEKDAYS,
     WEEKDAY_MAP,
     get_current_term,
     get_term_for_date,
@@ -114,41 +115,7 @@ def build_discord_connector() -> aiohttp.TCPConnector:
     )
 
 
-def _resolve_gmail_credentials() -> str:
-    env_val = (os.getenv("GMAIL_CREDENTIALS") or "").strip()
-    # Search both current working directory and script directory
-    # so startup location differences do not break OAuth setup.
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    search_roots = [os.getcwd(), script_dir, "/app"]
-
-    if env_val:
-        if os.path.isabs(env_val):
-            return env_val
-        candidates = [os.path.join(root, env_val) for root in search_roots]
-        for path in candidates:
-            if os.path.exists(path):
-                return path
-
-    # Fallback autodiscovery for common Google OAuth client secret filenames.
-    patterns = [
-        "client_secret*.json",
-        "credentials.json",
-        "gmail_credentials.json",
-    ]
-    for root in search_roots:
-        for pattern in patterns:
-            matched = sorted(glob.glob(os.path.join(root, pattern)))
-            if matched:
-                logger.info("[INFO] GMAIL_CREDENTIALS を自動検出: %s", matched[0])
-                return matched[0]
-
-    if env_val:
-        # Return the script-dir candidate for clearer error messages downstream.
-        return os.path.join(script_dir, env_val)
-    return ""
-
-
-GMAIL_CREDENTIALS = _resolve_gmail_credentials()
+GMAIL_CREDENTIALS = gmail_oauth.resolve_credentials_path()
 
 BASE_DIR = os.getcwd()
 
@@ -192,9 +159,6 @@ logger.info(
     now_local().strftime("%Y-%m-%d %H:%M:%S %z"),
     datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
 )
-
-# Gmail 認証フロー（一時保存）
-user_auth_flows = {}
 
 
 # --- Gmailサービス取得 ---
@@ -753,23 +717,18 @@ def _apply_web_payload_to_user_data(user_data: dict, payload: dict) -> dict:
     return user_data
 
 
-async def _apply_gmail_auth_code_from_web(user_id: int, code: str) -> bool:
-    """Webで取得した Gmail OAuth code を利用してトークン保存する。"""
+async def _apply_gmail_auth_code_from_web(
+    user_id: int, code: str, state: str | None
+) -> bool:
+    """Webで取得した Gmail OAuth code を、発行時の state（PKCE）と照合してトークン保存する。"""
     if not code:
         return False
+    if not state:
+        # state がない古い形式のキーは、発行者を確認できないため受け付けない
+        logger.warning(f"[WARN] Web経由の Gmail 認証に state がありません user={user_id}")
+        return False
     try:
-        flow = Flow.from_client_secrets_file(
-            GMAIL_CREDENTIALS,
-            scopes=["https://www.googleapis.com/auth/gmail.readonly"],
-            redirect_uri="https://ninigi05.github.io/oauth-redirect/",
-        )
-        flow.fetch_token(code=code)
-        creds = flow.credentials
-        token_dir = os.path.join(BASE_DIR, "gmail_tokens")
-        os.makedirs(token_dir, exist_ok=True)
-        token_file = os.path.join(token_dir, f"user_{user_id}.pickle")
-        with open(token_file, "wb") as token:
-            pickle.dump(creds, token)
+        gmail_oauth.exchange_code(GMAIL_CREDENTIALS, user_id, code, state=state)
         return True
     except Exception as e:
         logger.warning(f"[WARN] Web経由の Gmail 認証反映失敗 user={user_id}: {e}")
@@ -839,7 +798,9 @@ async def web_applykey(interaction: discord.Interaction, key: str):
         gmail_ok = False
         gmail_code = (payload.get("gmail_auth_code") or "").strip()
         if gmail_code:
-            gmail_ok = await _apply_gmail_auth_code_from_web(user_id, gmail_code)
+            gmail_ok = await _apply_gmail_auth_code_from_web(
+                user_id, gmail_code, (payload.get("gmail_auth_state") or "").strip()
+            )
 
         # メッセージ行の詳細構築
         lines = [
@@ -896,7 +857,7 @@ async def web_applykey(interaction: discord.Interaction, key: str):
                 )
             elif gmail_code:
                 lines.append(
-                    "・Gmail認証連携に失敗しました。認証コードが正しいかご確認ください。"
+                    "・Gmail認証連携に失敗しました。Web画面で認証URLの取得からやり直し、新しいキーを発行してください。"
                 )
             else:
                 lines.append("・Gmail連携は今回更新されませんでした。")
@@ -943,13 +904,8 @@ async def mail_auth(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     user_id = interaction.user.id
     try:
-        flow = Flow.from_client_secrets_file(
-            GMAIL_CREDENTIALS,
-            scopes=["https://www.googleapis.com/auth/gmail.readonly"],
-            redirect_uri="https://ninigi05.github.io/oauth-redirect/",
-        )
-        auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
-        user_auth_flows[user_id] = flow
+        # 発行した利用者だけがコードを交換できるよう、user_id に紐付けて発行する
+        auth_url, _ = gmail_oauth.create_auth_url(GMAIL_CREDENTIALS, user_id)
         await send_dm(
             interaction.user,
             f"Gmail認証を開始します。\n以下のURLを開き、表示された認証コード（code）をコピーしてください：\n\n{auth_url}"
@@ -967,21 +923,13 @@ async def mail_auth(interaction: discord.Interaction):
 async def mail_setcode(interaction: discord.Interaction, code: str):
     await interaction.response.defer(ephemeral=True)
     user_id = interaction.user.id
-    if user_id not in user_auth_flows:
-        await interaction.followup.send(
-            "先に /mail auth を実行してください。", ephemeral=True
-        )
+    try:
+        # /mail auth で本人に発行した code_verifier と照合して交換する
+        gmail_oauth.exchange_code(GMAIL_CREDENTIALS, user_id, code)
+    except gmail_oauth.GmailAuthError as e:
+        await interaction.followup.send(str(e), ephemeral=True)
         return
     try:
-        flow = user_auth_flows[user_id]
-        flow.fetch_token(code=code)
-        creds = flow.credentials
-        token_dir = os.path.join(BASE_DIR, "gmail_tokens")
-        os.makedirs(token_dir, exist_ok=True)
-        token_file = os.path.join(token_dir, f"user_{user_id}.pickle")
-        with open(token_file, "wb") as token:
-            pickle.dump(creds, token)
-        del user_auth_flows[user_id]
         await send_dm(
             interaction.user,
             "【Gmail連携完了通知】\n\nGmail 認証が正常に完了しました！\n"

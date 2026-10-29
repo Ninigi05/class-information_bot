@@ -2,11 +2,14 @@
 設定管理 API エンドポイント
 """
 
+import os
 import logging
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.concurrency import run_in_threadpool
 from typing import Optional
 
+import gmail_oauth
 from utils import (
     load_user_data,
     save_user_data,
@@ -304,33 +307,63 @@ async def update_term_settings(
 
 
 
+@router.get("/gmail/auth-url")
+async def get_gmail_auth_url(current_user: TokenData = Depends(get_current_user)):
+    """
+    ログイン中の利用者に紐付けた Gmail 認証URLを発行する（本人以外はコードを交換できない）
+    """
+    credentials_file = gmail_oauth.resolve_credentials_path()
+    if not credentials_file or not os.path.exists(credentials_file):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="GMAIL_CREDENTIALS が見つかりません。サーバー設定を確認してください。",
+        )
+    try:
+        auth_url, state = gmail_oauth.create_auth_url(
+            credentials_file, current_user.user_id
+        )
+        return {"auth_url": auth_url, "state": state}
+    except Exception as e:
+        logger.exception(f"Gmail auth URL 発行失敗: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Gmail 認証URLの生成に失敗しました",
+        )
+
+
 @router.post("/gmail", response_model=SuccessResponse)
 async def update_gmail_auth(
     gmail_data: GmailSettingsSaveRequest,
     current_user: TokenData = Depends(get_current_user),
 ):
     """
-    Gmail連携用の認証コード（OAuth2 code）を保存
+    Gmail 認証コードをトークンに交換して連携を完了する
+
+    認証URL発行時の code_verifier と照合するため、本人が発行した認証のコードしか受け付けない。
     """
+    user_id = current_user.user_id
     try:
-        user_id = current_user.user_id
-        data = load_user_data(user_id)
-
-        # 認証コードを登録
-        data["gmail_auth_code"] = gmail_data.gmail_auth_code
-        save_user_data(user_id, data)
-
-        logger.info(f"Gmail認証コード更新: user_id={user_id}")
-
-        # DM通知を送信
-        msg = (
-            f"Gmail休講情報連携設定を更新しました。\n\n"
-            f"・認証コード: {'*'*len(gmail_data.gmail_auth_code) if gmail_data.gmail_auth_code else '未設定'}\n\n"
-            "※Webダッシュボード上からGmail認証コードが正常に同期されました。"
+        await run_in_threadpool(
+            gmail_oauth.exchange_code,
+            gmail_oauth.resolve_credentials_path(),
+            user_id,
+            gmail_data.gmail_auth_code,
+            gmail_data.gmail_auth_state,
         )
-        await notify_user_change(user_id, msg)
+    except gmail_oauth.GmailAuthError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    try:
+        # 以前の実装で保存していた認証コードが残っていれば削除する
+        data = load_user_data(user_id)
+        if data.pop("gmail_auth_code", None) is not None:
+            save_user_data(user_id, data)
 
-        return SuccessResponse(message="Gmail認証コードを保存しました", data=None)
+        logger.info(f"Gmail連携完了（Web）: user_id={user_id}")
+        await notify_user_change(
+            user_id,
+            "【Gmail連携完了通知】\n\nWebダッシュボードから Gmail 認証が正常に完了しました。",
+        )
+        return SuccessResponse(message="Gmail連携が完了しました", data=None)
     except Exception as e:
         logger.exception(f"Gmail認証コード保存エラー: {e}")
         raise HTTPException(

@@ -194,6 +194,9 @@ class OverridesBulkSaveRequest(BaseModel):
 class GmailSettingsSaveRequest(BaseModel):
     """Gmail認証設定保存リクエスト"""
     gmail_auth_code: str = Field(..., description="GmailのOAuth2認証コード")
+    gmail_auth_state: Optional[str] = Field(
+        None, description="認証URL発行時の state（省略時はログイン中の利用者に発行した最新の認証を使う）"
+    )
 
 class SettingsShowResponse(BaseModel):
     """設定情報レスポンス"""

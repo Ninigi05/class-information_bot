@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="google-site-verification" content="GYcBr85bd_gvAGQdALnQMxhxpf36t6_s8N8xk_PpmNc" />
   <title>Class information bot | 試験時間割 登録</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/vendor/tailwindcss-3.4.17.js"></script>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
   <main class="max-w-5xl mx-auto p-4 md:p-8 space-y-6">
@@ -102,7 +102,7 @@
   </dialog>
 
   <script>
-    const BACKEND = "https://commit-bond-gps-referenced.trycloudflare.com";
+    const BACKEND = window.location.origin;
     const STORAGE_KEY = "web_reg_draft_v2";
     const TERM_STORAGE_KEY = "web_current_term";
     const weekdays = ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"];
@@ -302,7 +302,7 @@
     function renderExamOverrides() {
       const keys = Object.keys(draft.exam_period_overrides || {});
       el.examOvList.innerHTML = keys.length
-        ? keys.map(k => `${k}限 → ${draft.exam_period_overrides[k]} <button class='text-rose-700 underline' data-rm-ov='${k}'>削除</button>`).join("<br>")
+        ? keys.map(k => `${escapeHtml(k)}限 → ${escapeHtml(draft.exam_period_overrides[k])} <button class='text-rose-700 underline' data-rm-ov='${k}'>削除</button>`).join("<br>")
         : "<div class='text-slate-400'>未設定</div>";
       el.examOvList.querySelectorAll("button[data-rm-ov]").forEach(btn => {
         btn.addEventListener("click", () => {

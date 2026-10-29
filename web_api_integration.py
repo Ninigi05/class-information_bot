@@ -5,15 +5,14 @@ Discord Bot と並行して動作する Web API サーバー
 
 import logging
 import os
-import glob
 from threading import Thread
 from typing import Optional, Any, Literal
 from pydantic import BaseModel, Field
-from google_auth_oauthlib.flow import Flow
+import gmail_oauth
 
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
 
@@ -58,11 +57,58 @@ except Exception as e:
     HAS_API_ROUTERS = False
 
 # FastAPI アプリケーションの初期化
+# API ドキュメント（/docs, /redoc, /openapi.json）は DEBUG=true のときだけ公開する
+_EXPOSE_API_DOCS = (os.getenv("DEBUG") or "").strip().lower() == "true"
+
 web_app = FastAPI(
     title="Discord授業情報Bot - Web API",
     description="Discord Bot のデータベースをWeb経由で操作",
     version="1.0.0",
+    docs_url="/docs" if _EXPOSE_API_DOCS else None,
+    redoc_url="/redoc" if _EXPOSE_API_DOCS else None,
+    openapi_url="/openapi.json" if _EXPOSE_API_DOCS else None,
 )
+
+# ============ セキュリティヘッダー ============
+# ページのスクリプトは自サーバーから配信する（web/vendor/）。インラインスクリプトがあるため
+# script-src に 'unsafe-inline' を含むが、外部オリジンからの読み込み・通信は禁止する
+CONTENT_SECURITY_POLICY = "; ".join(
+    [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data:",
+        "media-src 'self'",
+        "connect-src 'self'",
+        "object-src 'none'",
+        "base-uri 'none'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+    ]
+)
+HSTS_HEADER = "max-age=31536000"
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+@web_app.middleware("http")
+async def security_headers_middleware(request, call_next):
+    # Cloudflare Tunnel などのプロキシ越しに HTTP で来たアクセスは HTTPS へリダイレクトする
+    # （ローカルからの直接アクセスにはヘッダーが付かないため、従来どおり HTTP で使える）
+    forwarded_proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip()
+    is_https = request.url.scheme == "https" or forwarded_proto == "https"
+    if forwarded_proto == "http" and request.url.hostname not in _LOCAL_HOSTS:
+        return RedirectResponse(
+            str(request.url.replace(scheme="https", port=None)), status_code=308
+        )
+
+    response = await call_next(request)
+    response.headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    if is_https:
+        response.headers.setdefault("Strict-Transport-Security", HSTS_HEADER)
+    return response
 
 if HAS_API_ROUTERS:
     web_app.include_router(classes.router)
@@ -255,6 +301,7 @@ class WebRegistrationDraft(BaseModel):
     term_ranges: dict[str, dict[str, str]] = Field(default_factory=dict)
     class_count_targets: dict[str, int] = Field(default_factory=dict)
     gmail_auth_code: Optional[str] = None
+    gmail_auth_state: Optional[str] = None
 
 
 class LinkKeyIssueRequest(BaseModel):
@@ -311,6 +358,7 @@ def _build_feature_payload(
         },
         "gmail": {
             "gmail_auth_code": draft.gmail_auth_code,
+            "gmail_auth_state": draft.gmail_auth_state,
         },
         "exam": {
             "exam_schedules": draft.exam_schedules,
@@ -353,38 +401,6 @@ def _find_class_index(classes: list[dict], day: int, period: str) -> int:
     return -1
 
 
-def _resolve_gmail_credentials_path() -> str:
-    """環境差分（ローカル/コンテナ）を吸収して credentials パスを解決。"""
-    env_val = (os.getenv("GMAIL_CREDENTIALS") or "").strip()
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    search_roots = [os.getcwd(), script_dir, "/app"]
-
-    if env_val:
-        if os.path.isabs(env_val):
-            return env_val
-        candidates = [os.path.join(root, env_val) for root in search_roots]
-        for path in candidates:
-            if os.path.exists(path):
-                return path
-
-    # Fallback autodiscovery for common Google OAuth client secret filenames.
-    patterns = [
-        "client_secret*.json",
-        "credentials.json",
-        "gmail_credentials.json",
-    ]
-    for root in search_roots:
-        for pattern in patterns:
-            matched = sorted(glob.glob(os.path.join(root, pattern)))
-            if matched:
-                logger.info("GMAIL_CREDENTIALS を自動検出: %s", matched[0])
-                return matched[0]
-
-    if env_val:
-        return os.path.join(script_dir, env_val)
-    return ""
-
-
 # ============ ヘルスチェック ============
 
 
@@ -396,26 +412,23 @@ async def health_check():
 
 @web_app.get("/api/public/gmail-auth-url")
 async def get_public_gmail_auth_url():
-    """Web 画面向け Gmail 認証URLを発行する。"""
-    credentials_file = _resolve_gmail_credentials_path()
+    """Web 画面向け Gmail 認証URLを発行する（ログイン不要ページ用）。
+
+    返す state は、連携キー発行時に code と一緒に送ってもらい、
+    /web applykey でのコード交換時に発行時の code_verifier と照合する（PKCE）。
+    """
+    credentials_file = gmail_oauth.resolve_credentials_path()
     if not credentials_file or not os.path.exists(credentials_file):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="GMAIL_CREDENTIALS が見つかりません。サーバー設定を確認してください。",
         )
     try:
-        redirect_uri = os.getenv(
-            "GMAIL_REDIRECT_URI", "https://ninigi05.github.io/oauth-redirect/"
-        )
-        flow = Flow.from_client_secrets_file(
-            credentials_file,
-            scopes=["https://www.googleapis.com/auth/gmail.readonly"],
-            redirect_uri=redirect_uri,
-        )
-        auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
+        auth_url, state = gmail_oauth.create_auth_url(credentials_file)
         return {
             "auth_url": auth_url,
-            "redirect_uri": redirect_uri,
+            "state": state,
+            "redirect_uri": gmail_oauth.get_redirect_uri(),
             "message": "認証後に表示された code を Web画面に貼り付けてください。",
         }
     except Exception as e:
