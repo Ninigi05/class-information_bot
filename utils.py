@@ -222,10 +222,17 @@ def add_makeup_class(
         raise ValueError(f"{term}に元となる授業が登録されていません")
 
     makeups = data.setdefault("makeup_classes", [])
+    # 同じ日・時限でも、元の授業が異なれば複数登録できる
     if any(
-        m.get("date") == date_str and str(m.get("period")) == period for m in makeups
+        m.get("date") == date_str
+        and str(m.get("period")) == period
+        and str(m.get("day")) == str(source_day)
+        and str(m.get("source_period")) == source_period
+        for m in makeups
     ):
-        raise ValueError(f"{date_str} {period}限には既に補講が登録されています")
+        raise ValueError(
+            f"{date_str} {period}限には既に同じ授業の補講が登録されています"
+        )
 
     record = {
         "date": date_str,
@@ -241,12 +248,32 @@ def add_makeup_class(
     return record
 
 
-def remove_makeup_class(data: dict, date_str: str, period) -> dict | None:
+def remove_makeup_class(
+    data: dict, date_str: str, period, source_day=None, source_period=None
+) -> dict | None:
+    """補講を削除する。同じ日・時限に複数ある場合は元の授業（source_*）の指定が必要。
+
+    該当なしは None、元の授業の指定がなく候補が複数ある場合は ValueError。
+    """
     makeups = data.get("makeup_classes", []) or []
-    for i, m in enumerate(makeups):
-        if m.get("date") == date_str and str(m.get("period")) == str(period):
-            return makeups.pop(i)
-    return None
+    matched = [
+        i
+        for i, m in enumerate(makeups)
+        if m.get("date") == date_str
+        and str(m.get("period")) == str(period)
+        and (source_day is None or str(m.get("day")) == str(source_day))
+        and (
+            source_period is None
+            or str(m.get("source_period")) == str(source_period)
+        )
+    ]
+    if not matched:
+        return None
+    if len(matched) > 1:
+        raise ValueError(
+            f"{date_str} {period}限には補講が複数あります。削除する授業を指定してください"
+        )
+    return makeups.pop(matched[0])
 
 
 def add_cancelled_class(

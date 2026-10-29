@@ -489,13 +489,22 @@
 
     function renderRecordList(container, items, kind, label) {
       container.innerHTML = items.length
-        ? items.map(x => `<div class='py-1'>${formatDate(x.date)} ${escapeHtml(x.period)}限 ${label} ${escapeHtml(x.subject || "")}${x.room ? ` (${escapeHtml(x.room)})` : ""} <button class='text-rose-700 underline' data-${kind}-date='${escapeHtml(x.date)}' data-period='${escapeHtml(x.period)}'>削除</button></div>`).join("")
+        ? items.map(x => `<div class='py-1'>${formatDate(x.date)} ${escapeHtml(x.period)}限 ${label} ${escapeHtml(x.subject || "")}${x.room ? ` (${escapeHtml(x.room)})` : ""} <button class='text-rose-700 underline' data-${kind}-date='${escapeHtml(x.date)}' data-period='${escapeHtml(x.period)}' data-source-day='${x.day ?? ""}' data-source-period='${escapeHtml(x.source_period ?? "")}'>削除</button></div>`).join("")
         : "<div class='text-slate-400'>未登録</div>";
       container.querySelectorAll(`button[data-${kind}-date]`).forEach(btn => {
         btn.addEventListener("click", async () => {
           const date = btn.getAttribute(`data-${kind}-date`);
+          let url = `/api/${kind}/${encodeURIComponent(date)}/${encodeURIComponent(btn.dataset.period)}`;
+          // 同じ日・時限の補講を区別するため、元の授業も指定する
+          if (kind === "makeup" && btn.dataset.sourceDay !== "") {
+            const params = new URLSearchParams({
+              source_weekday: weekdays[Number(btn.dataset.sourceDay)],
+              source_period: btn.dataset.sourcePeriod,
+            });
+            url += `?${params}`;
+          }
           try {
-            await apiRequest(`/api/${kind}/${encodeURIComponent(date)}/${encodeURIComponent(btn.dataset.period)}`, { method: 'DELETE' });
+            await apiRequest(url, { method: 'DELETE' });
             await loadMakeupAndCancel();
           } catch (e) {
             console.error("削除失敗:", e);

@@ -120,6 +120,8 @@ async def add_makeup(
 async def delete_makeup(
     date: str,
     period: str,
+    source_weekday: str = None,
+    source_period: str = None,
     current_user: TokenData = Depends(get_current_user),
 ):
     """
@@ -128,13 +130,28 @@ async def delete_makeup(
     Args:
         date: 日付（YYYY-MM-DD）
         period: 時限
+        source_weekday / source_period: 元の授業（同じ日・時限に補講が複数ある場合に指定）
     Returns:
         成功メッセージ
     """
+    if source_weekday is not None and source_weekday not in WEEKDAY_MAP:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"無効な曜日です: {source_weekday}",
+        )
     try:
         user_id = current_user.user_id
         user_data = load_user_data(user_id)
-        removed = remove_makeup_class(user_data, date, period)
+        try:
+            removed = remove_makeup_class(
+                user_data,
+                date,
+                period,
+                WEEKDAY_MAP.get(source_weekday) if source_weekday else None,
+                source_period,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         if removed is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

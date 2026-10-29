@@ -106,7 +106,8 @@ class MakeupCog(commands.GroupCog, name="makeup"):
             if current in label:
                 choices.append(
                     app_commands.Choice(
-                        name=label[:100], value=f"{m.get('date')}|{m.get('period')}"
+                        name=label[:100],
+                        value=f"{m.get('date')}|{m.get('period')}|{m.get('day')}|{m.get('source_period')}",
                     )
                 )
                 if len(choices) >= 25:
@@ -141,8 +142,8 @@ class MakeupCog(commands.GroupCog, name="makeup"):
             f"[Command] makeup add: user={user_id} {date} {period}限 source={source}"
         )
         try:
-            source_day, source_period = source.split("|", 1)
-            source_day = int(source_day)
+            source_day_raw, source_period = source.split("|", 1)
+            source_day = int(source_day_raw)
         except ValueError:
             await interaction.followup.send(
                 "授業は候補から選択してください", ephemeral=True
@@ -174,9 +175,15 @@ class MakeupCog(commands.GroupCog, name="makeup"):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
         logger.info(f"[Command] makeup remove: user={user_id} target={target}")
-        date_str, _, period = target.partition("|")
+        date_str, period, source_day, source_period = (target.split("|") + [None] * 4)[:4]
         data = load_user_data(user_id)
-        removed = remove_makeup_class(data, date_str, period)
+        try:
+            removed = remove_makeup_class(
+                data, date_str, period, source_day, source_period
+            )
+        except ValueError as e:
+            await interaction.followup.send(str(e), ephemeral=True)
+            return
         if removed is None:
             await interaction.followup.send(
                 "該当する補講が見つかりませんでした", ephemeral=True

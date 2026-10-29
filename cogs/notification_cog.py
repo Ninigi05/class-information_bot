@@ -29,6 +29,8 @@ from utils import (
 
 BASE_DIR = os.getcwd()
 MORNING_MARK_FILE = os.path.join(BASE_DIR, "morning_sent.json")
+# 授業前通知の送信済み記録（再起動しても同じ通知を再送・再カウントしないよう保存する）
+SENT_REMINDERS_FILE = os.path.join(BASE_DIR, "sent_reminders.json")
 logger = logging.getLogger(__name__)
 APP_TIMEZONE = (os.getenv("APP_TIMEZONE") or "Asia/Tokyo").strip()
 GRACE_WINDOW_SECONDS = int(os.getenv("NOTIF_GRACE_WINDOW", "300"))
@@ -66,11 +68,36 @@ def _save_morning_sent(d):
         logger.warning(f"[WARN] morning_sent 保存失敗: {e}")
 
 
+def _load_sent_reminders() -> dict[int, set]:
+    try:
+        with open(SENT_REMINDERS_FILE, "r", encoding="utf-8") as f:
+            return {int(uid): set(keys) for uid, keys in json.load(f).items()}
+    except Exception:
+        return {}
+
+
+def _save_sent_reminders(d: dict[int, set], today_str: str):
+    # キーは "YYYY-MM-DD|..." 形式。当日分のみ残してメモリとファイルの肥大化を防ぐ
+    for uid in list(d.keys()):
+        d[uid] = {k for k in d[uid] if k.startswith(today_str)}
+        if not d[uid]:
+            del d[uid]
+    try:
+        with open(SENT_REMINDERS_FILE, "w", encoding="utf-8") as f:
+            json.dump(
+                {str(uid): sorted(keys) for uid, keys in d.items()},
+                f,
+                ensure_ascii=False,
+            )
+    except Exception as e:
+        logger.warning(f"[WARN] sent_reminders 保存失敗: {e}")
+
+
 class NotificationCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._last_notif_key = None
-        self._sent_reminders: dict[int, set] = {}
+        self._sent_reminders: dict[int, set] = _load_sent_reminders()
         self._notif_lock = asyncio.Lock()
         self.notification_loop.start()
 
@@ -214,7 +241,7 @@ class NotificationCog(commands.Cog):
                                 now_seconds >= target
                                 and (now_seconds - target) <= GRACE_WINDOW_SECONDS
                             ):
-                                rem_key = f"{today_str}|{p_key}|{cls_item.get('subject')}|{off}"
+                                rem_key = f"{today_str}|{p_key}|{cls_item.get('day')}|{cls_item.get('source_period', '')}|{cls_item.get('subject')}|{off}"
                                 if rem_key not in self._sent_reminders.setdefault(
                                     user_id, set()
                                 ):
@@ -223,6 +250,9 @@ class NotificationCog(commands.Cog):
                                     msg = f"【試験期間】{username}さん、教室「{room}」で{off//60}分後に授業「{cls_item.get('subject')}」が始まります"
                                     await send_dm(user, msg)
                                     self._sent_reminders[user_id].add(rem_key)
+                                    _save_sent_reminders(
+                                        self._sent_reminders, today_str
+                                    )
 
                     # 朝の一覧
                     if _is_user_morning_time(now, data):
@@ -285,7 +315,7 @@ class NotificationCog(commands.Cog):
                                 now_seconds >= target
                                 and (now_seconds - target) <= GRACE_WINDOW_SECONDS
                             ):
-                                rem_key = f"{today_str}|{p_key}|{cls_item.get('subject')}|{off}"
+                                rem_key = f"{today_str}|{p_key}|{cls_item.get('day')}|{cls_item.get('source_period', '')}|{cls_item.get('subject')}|{off}"
                                 if rem_key not in self._sent_reminders.setdefault(
                                     user_id, set()
                                 ):
@@ -294,6 +324,9 @@ class NotificationCog(commands.Cog):
                                     msg = f"{username}さん、教室「{room}」で{off//60}分後に授業「{cls_item.get('subject')}」が始まります"
                                     await send_dm(user, msg)
                                     self._sent_reminders[user_id].add(rem_key)
+                                    _save_sent_reminders(
+                                        self._sent_reminders, today_str
+                                    )
 
                                     # 授業回数カウントと自動削除 (2回目の通知時にカウント)
                                     if off == offsets[-1]:
