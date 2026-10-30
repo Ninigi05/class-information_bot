@@ -1,4 +1,5 @@
 import os
+import asyncio
 import base64
 import traceback
 import logging
@@ -321,6 +322,27 @@ def subjects_match_strict(
     return False
 
 
+def _infer_year(month: int, day: int) -> int:
+    """年の記載がない日付の年を推定する（12月に届いた1月の通知などで年がずれないようにする）。"""
+    today = now_local().date()
+    for year in (today.year, today.year + 1, today.year - 1):
+        try:
+            candidate = datetime(year, month, day).date()
+        except ValueError:
+            continue
+        if abs((candidate - today).days) <= 183:
+            return year
+    return today.year
+
+
+# 曜日変更（授業変更日）と判定する件名と、実施を表す本文の表現
+# 例: 「月曜日の授業を行います」「水曜日の時間割で実施」「火曜授業を実施」
+SCHEDULE_CHANGE_SUBJECT_RE = re.compile(r"授業変更|曜日変更|振替")
+SCHEDULE_CHANGE_BODY_RE = re.compile(
+    r"([月火水木金土日])曜(?:日)?(?:の)?(?:授業|時間割)(?:を|で|に|と)?(?:して)?(?:行|実施)"
+)
+
+
 def parse_cancellation_email(mail):
     subject_header = (mail.get("subject") or "").strip()
     body = (mail.get("body") or "").strip()
@@ -334,7 +356,7 @@ def parse_cancellation_email(mail):
         if date_match2:
             month = int(date_match2.group(1))
             day = int(date_match2.group(2))
-            year = now_local().year
+            year = _infer_year(month, day)
             date_str = f"{year}-{month:02d}-{day:02d}"
         else:
             logger.warning(f"[WARNING] 日付抽出失敗: {subject_header}")
@@ -349,15 +371,15 @@ def parse_cancellation_email(mail):
         elif western_year:
             year = int(western_year)
         else:
-            year = now_local().year
+            year = _infer_year(month, day)
         date_str = f"{year}-{month:02d}-{day:02d}"
 
     # 曜日変更（授業変更日）の判定
-    # 例: 「月曜日の授業を行う」「水曜授業」「火曜日の時間割」
-    weekday_names = ["月", "火", "水", "木", "金", "土", "日"]
-    change_match = re.search(
-        r"([月火水木金土日])曜(?:日)?(?:の)?(?:授業|時間割)", body + subject_header
-    )
+    # 「金曜日の授業を休講」のような休講通知を誤判定しないよう、件名が授業変更系で休講を含まず、
+    # 本文が「〇曜日の授業を行う／実施」のように実施を表す場合に限る
+    change_match = None
+    if SCHEDULE_CHANGE_SUBJECT_RE.search(subject_header) and "休講" not in subject_header:
+        change_match = SCHEDULE_CHANGE_BODY_RE.search(body + subject_header)
     if change_match:
         target_weekday = change_match.group(1) + "曜日"
         return {
@@ -728,7 +750,9 @@ async def _apply_gmail_auth_code_from_web(
         logger.warning(f"[WARN] Web経由の Gmail 認証に state がありません user={user_id}")
         return False
     try:
-        gmail_oauth.exchange_code(GMAIL_CREDENTIALS, user_id, code, state=state)
+        await asyncio.to_thread(
+            gmail_oauth.exchange_code, GMAIL_CREDENTIALS, user_id, code, state=state
+        )
         return True
     except Exception as e:
         logger.warning(f"[WARN] Web経由の Gmail 認証反映失敗 user={user_id}: {e}")
@@ -924,8 +948,8 @@ async def mail_setcode(interaction: discord.Interaction, code: str):
     await interaction.response.defer(ephemeral=True)
     user_id = interaction.user.id
     try:
-        # /mail auth で本人に発行した code_verifier と照合して交換する
-        gmail_oauth.exchange_code(GMAIL_CREDENTIALS, user_id, code)
+        # /mail auth で本人に発行した code_verifier と照合して交換する（通信を伴うため別スレッドで実行）
+        await asyncio.to_thread(gmail_oauth.exchange_code, GMAIL_CREDENTIALS, user_id, code)
     except gmail_oauth.GmailAuthError as e:
         await interaction.followup.send(str(e), ephemeral=True)
         return
@@ -940,15 +964,54 @@ async def mail_setcode(interaction: discord.Interaction, code: str):
         await interaction.followup.send(f"認証に失敗しました: {e}", ephemeral=True)
 
 
+class ScheduleChangeApplyView(discord.ui.View):
+    """/mail fetch で見つかった授業変更日を、本人の確認後に時間割へ反映するボタン。"""
+
+    def __init__(self, user_id: int, changes: dict[str, str]):
+        super().__init__(timeout=600)
+        self.user_id = user_id
+        self.changes = changes
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return interaction.user.id == self.user_id
+
+    def _disable_all(self):
+        for item in self.children:
+            item.disabled = True
+        self.stop()
+
+    @discord.ui.button(label="時間割に反映する", style=discord.ButtonStyle.primary)
+    async def apply(self, interaction: discord.Interaction, button: discord.ui.Button):
+        user_data = load_user_data(self.user_id)
+        for date_str, target_wd in self.changes.items():
+            wd_num = WEEKDAY_MAP[target_wd]
+            for classes in (user_data.get("classes_by_term") or {}).values():
+                for cls in classes or []:
+                    cls.setdefault("overrides", {})[date_str] = wd_num
+        save_user_data(self.user_id, user_data)
+        self._disable_all()
+        await interaction.response.edit_message(
+            content=f"授業変更日（{len(self.changes)}件）を時間割に反映しました。", view=self
+        )
+
+    @discord.ui.button(label="反映しない", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self._disable_all()
+        await interaction.response.edit_message(
+            content="授業変更日は反映しませんでした。", view=self
+        )
+
+
 @mail_group.command(
     name="fetch",
-    description="Gmailから最新の休講情報を取得してDMで表示（保存はしません）",
+    description="Gmailから休講・授業変更情報を取得してDMで表示（授業変更は確認後に反映）",
 )
 async def mail_fetch(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     user_id = interaction.user.id
     try:
-        results = fetch_cancellation_emails(user_id)
+        # Gmail API は同期通信のため、イベントループを止めないよう別スレッドで実行する
+        results = await asyncio.to_thread(fetch_cancellation_emails, user_id)
         if not results:
             await send_dm(
                 interaction.user, "該当する休講・授業変更情報は見つかりませんでした。"
@@ -969,37 +1032,25 @@ async def mail_fetch(interaction: discord.Interaction):
 
         await send_long_dm(interaction.user, "\n".join(lines))
 
-        # 授業変更日の自動適用（簡易実装）
-        # day_overrides は {"YYYY-MM-DD": weekday_num} の形式を想定
-        # main.py の _apply_web_payload_to_user_data の実装に合わせて調整が必要
-        user_data = load_user_data(user_id)
-        applied_count = 0
-        for item in results:
-            if item.get("type") == "schedule_change":
-                date_str = item.get("date")
-                target_wd = item.get("target_weekday")
-                if date_str and target_wd in WEEKDAY_MAP:
-                    wd_num = WEEKDAY_MAP[target_wd]
-                    # classes の各授業に overrides を設定
-                    # classes_by_term がある場合は全学期に対して適用
-                    terms = user_data.get("classes_by_term", {}).keys() or [None]
-                    for term in terms:
-                        classes = (
-                            user_data.get("classes_by_term", {}).get(term)
-                            if term
-                            else user_data.get("classes")
-                        )
-                        if classes:
-                            for cls in classes:
-                                cls.setdefault("overrides", {})[date_str] = wd_num
-                    applied_count += 1
-
-        if applied_count > 0:
-            save_user_data(user_id, user_data)
-            await send_dm(
-                interaction.user,
-                f"上記の授業変更日（{applied_count}件）を時間割に自動適用しました。",
+        # 授業変更日は誤判定の可能性があるため自動では反映せず、確認ボタンで本人が承認したときだけ反映する
+        changes = {
+            item["date"]: item["target_weekday"]
+            for item in results
+            if item.get("type") == "schedule_change"
+            and item.get("date")
+            and item.get("target_weekday") in WEEKDAY_MAP
+        }
+        if changes:
+            change_lines = "\n".join(
+                f"・{date_str} → {wd} の時間割" for date_str, wd in sorted(changes.items())
             )
+            await interaction.followup.send(
+                "通知情報をDMで送信しました。\n\n次の授業変更日を時間割に反映しますか？"
+                f"（メール内容を確認してから押してください）\n{change_lines}",
+                view=ScheduleChangeApplyView(user_id, changes),
+                ephemeral=True,
+            )
+            return
 
         await interaction.followup.send("通知情報をDMで送信しました。", ephemeral=True)
     except Exception as e:
@@ -1179,7 +1230,7 @@ class ClassBot(commands.Bot):
                 "• /mail setcode code\n  → 認証コードを入力して連携を完了します"
             )
             lines.append(
-                "• /mail fetch\n  → Gmailから最新の休講情報を取得して保存します\n"
+                "• /mail fetch\n  → Gmailから最新の休講・授業変更情報を取得してDMで表示します（授業変更日は確認ボタンを押すと時間割に反映されます）\n"
             )
 
             lines.append("===  Web連携（/web） ===")

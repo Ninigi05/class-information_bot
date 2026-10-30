@@ -3,20 +3,23 @@ FastAPI Web統合モジュール
 Discord Bot と並行して動作する Web API サーバー
 """
 
+import json
 import logging
 import os
-from threading import Thread
+import time
+from collections import deque
+from threading import Lock, Thread
 from typing import Optional, Any, Literal
 from pydantic import BaseModel, Field
 import gmail_oauth
 
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
 
 from utils import TERM_FIRST, normalize_term_key
-from web_link_service import create_link_key
+from web_link_service import create_link_key, LinkKeyStoreFullError
 
 logger = logging.getLogger(__name__)
 
@@ -357,6 +360,57 @@ def _build_feature_payload(
     return jsonable_encoder(out)
 
 
+# ============ 公開エンドポイントの回数制限 ============
+# ログイン不要のエンドポイントは、大量リクエストでディスクやメモリを埋められないよう IP 単位で制限する
+MAX_LINK_PAYLOAD_BYTES = 200 * 1024
+
+
+class _RateLimiter:
+    def __init__(self, limit: int, window_seconds: int):
+        self.limit = limit
+        self.window = window_seconds
+        self._hits: dict[str, deque] = {}
+        self._lock = Lock()
+
+    def hit(self, key: str) -> bool:
+        now = time.monotonic()
+        with self._lock:
+            if len(self._hits) > 10000:
+                # 古い記録しかない IP を捨ててメモリの肥大化を防ぐ
+                self._hits = {
+                    k: q for k, q in self._hits.items() if q and now - q[-1] < self.window
+                }
+            q = self._hits.setdefault(key, deque())
+            while q and now - q[0] >= self.window:
+                q.popleft()
+            if len(q) >= self.limit:
+                return False
+            q.append(now)
+            return True
+
+
+def _client_ip(request: Request) -> str:
+    # Cloudflare Tunnel 経由では接続元が cloudflared になるため、Cloudflare が付ける実際の接続元を使う
+    return request.headers.get("cf-connecting-ip") or (
+        request.client.host if request.client else "unknown"
+    )
+
+
+def _rate_limited(limiter: _RateLimiter):
+    async def dependency(request: Request):
+        if not limiter.hit(_client_ip(request)):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="リクエストが多すぎます。しばらくしてからやり直してください。",
+            )
+
+    return Depends(dependency)
+
+
+_gmail_auth_url_limiter = _RateLimiter(limit=10, window_seconds=600)
+_issue_link_key_limiter = _RateLimiter(limit=20, window_seconds=600)
+
+
 # ============ ヘルスチェック ============
 
 
@@ -366,7 +420,9 @@ async def health_check():
     return {"status": "ok", "service": "Discord授業情報Bot API"}
 
 
-@web_app.get("/api/public/gmail-auth-url")
+@web_app.get(
+    "/api/public/gmail-auth-url", dependencies=[_rate_limited(_gmail_auth_url_limiter)]
+)
 async def get_public_gmail_auth_url():
     """Web 画面向け Gmail 認証URLを発行する（ログイン不要ページ用）。
 
@@ -387,6 +443,8 @@ async def get_public_gmail_auth_url():
             "redirect_uri": gmail_oauth.get_redirect_uri(),
             "message": "認証後に表示された code を Web画面に貼り付けてください。",
         }
+    except gmail_oauth.GmailAuthError as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
     except Exception as e:
         logger.exception(f"Gmail auth URL 発行失敗: {e}")
         raise HTTPException(
@@ -395,9 +453,16 @@ async def get_public_gmail_auth_url():
         )
 
 
-@web_app.post("/api/public/issue-link-key")
+@web_app.post(
+    "/api/public/issue-link-key", dependencies=[_rate_limited(_issue_link_key_limiter)]
+)
 async def issue_link_key(payload: dict[str, Any]):
     """Webで登録した内容を機能単位キー化し、Discord 側取り込み用キーを返す。"""
+    if len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) > MAX_LINK_PAYLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="登録内容が大きすぎます",
+        )
     try:
         # 互換対応: 旧形式（WebRegistrationDraft 直送）も受け付ける
         if "data" in payload:
@@ -422,6 +487,11 @@ async def issue_link_key(payload: dict[str, Any]):
             "feature": feature,
             "discord_command": f"/web applykey key:{key}",
         }
+    except LinkKeyStoreFullError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="現在連携キーを発行できません。しばらくしてからやり直してください。",
+        )
     except Exception as e:
         logger.exception(f"リンクキー生成失敗: {e}")
         raise HTTPException(

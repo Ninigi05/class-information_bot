@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 PENDING_TTL_SECONDS = 15 * 60
+MAX_PENDING = 1000
 TOKEN_DIR = os.path.join(os.getcwd(), "gmail_tokens")
 
 # state -> {"verifier", "user_id"(None=未ログインのWeb), "expires"}
@@ -80,6 +81,9 @@ def create_auth_url(credentials_file: str, user_id: int | None = None) -> tuple[
     now = time.time()
     with _lock:
         _cleanup_locked(now)
+        if user_id is None and len(_pending) >= MAX_PENDING:
+            # ログイン不要で発行できるため、大量発行でメモリを埋められないよう上限を設ける
+            raise GmailAuthError("現在認証URLを発行できません。しばらくしてからやり直してください。")
         if user_id is not None:
             # 同じ利用者の古い発行分は無効にする（最新の URL のみ有効）
             for s in [s for s, v in _pending.items() if v["user_id"] == user_id]:

@@ -10,3 +10,16 @@ __pycache__
 *.log
 *.zip
 *.pdf
+
+# 秘密情報・実行時データ（compose ではボリュームマウントで渡すため、イメージには含めない）
+.env
+.env.*
+gmail_tokens/
+*.pickle
+client_secret*.json
+*.json
+logs/
+runtime/
+*.bak
+*.mp4
+SECURITY_AND_BUG_REPORT.md

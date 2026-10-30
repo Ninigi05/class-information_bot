@@ -1,11 +1,10 @@
+import copy
 import json
 import os
 import logging
-try:
-    import fcntl
-except ImportError:
-    fcntl = None
-from datetime import datetime
+import tempfile
+import threading
+from datetime import datetime, timedelta
 
 BASE_DIR = os.getcwd()
 logger = logging.getLogger(__name__)
@@ -59,16 +58,15 @@ def normalize_term_key(term: str | None) -> str:
     return TERM_ALIASES.get(key, str(term).strip())
 
 
-def get_effective_term(user_id: int) -> str:
+def get_effective_term(user_id: int, data: dict | None = None) -> str:
     """
     ユーザー設定の開始日・終了日を考慮して、現在の学期を判定する。
     毎日朝8:00のみ判定を行い、その日のキャッシュを保持する。
     設定がない場合は従来の get_current_term() (月判定) にフォールバックする。
+    data を渡すと、ファイルを読み直さずにそのデータで判定する。
     """
-    from utils import load_user_data, save_user_data, get_current_term
-    from datetime import datetime, timedelta
-
-    data = load_user_data(user_id)
+    if data is None:
+        data = load_user_data(user_id)
     cached_term_info = data.get("effective_term_cache", {})
     now_dt = datetime.now()
     now_date_str = now_dt.strftime("%Y-%m-%d")
@@ -321,30 +319,79 @@ def get_attendance_key(term: str, weekday: int, period: str, subject: str) -> st
     return f"{term}|{weekday}|{period}|{subject}"
 
 
+# ユーザーデータの保存はユーザー単位のロックで直列化する。
+# Bot（イベントループ）と Web API（uvicorn のスレッド）は同一プロセスで動くため、スレッド間のロックで足りる。
+_user_locks: dict[str, threading.Lock] = {}
+_user_locks_guard = threading.Lock()
+_LEGACY_KEYS = ("classes", "exam_schedules")
+_MISSING = object()
+
+
+def _user_lock(user_id) -> threading.Lock:
+    with _user_locks_guard:
+        return _user_locks.setdefault(str(user_id), threading.Lock())
+
+
+def _user_data_path(user_id) -> str:
+    return os.path.join(BASE_DIR, f"user_{user_id}.json")
+
+
+class UserData(dict):
+    """load_user_data の戻り値。保存時のマージに使うため、読み込み時点の内容（_base）を保持する。"""
+
+    __slots__ = ("_base",)
+
+
 def get_user_data_mtime(user_id):
-    """ユーザーチE�Eタの最終更新時刻を取得すめE"""
-    path = os.path.join(BASE_DIR, f"user_{user_id}.json")
+    """ユーザーデータの最終更新時刻を取得する"""
+    path = _user_data_path(user_id)
     if not os.path.exists(path):
         return 0
     return os.path.getmtime(path)
 
 
-def load_user_data(user_id):
-    path = os.path.join(BASE_DIR, f"user_{user_id}.json")
+def _read_user_file(user_id) -> dict | None:
+    """ファイルを読んで移行済みの dict を返す。ファイルがなければ {}、壊れていれば None。"""
+    path = _user_data_path(user_id)
     if not os.path.exists(path):
         return {}
     try:
         with open(path, "r", encoding="utf-8") as f:
-            # 読み込み時も共有ロチE��を取得して読み込み中の書き込みを防ぁE
-            fcntl.flock(f.fileno(), fcntl.LOCK_SH)
             data = json.load(f)
-    except (IOError, json.JSONDecodeError) as e:
-        logger.error(f"チE�Eタ読み込み失敁Euser={user_id}: {e}")
-        return {}
-
+    except (OSError, json.JSONDecodeError) as e:
+        logger.error(f"データ読み込み失敗 user={user_id}: {e}")
+        return None
     # Backward compatibility: migrate old single-term structure to new structure
-    data = _migrate_user_data_to_term_aware(data)
-    return data
+    return _migrate_user_data_to_term_aware(data)
+
+
+def load_user_data(user_id):
+    # Windows では読み込み中のファイルを os.replace で置き換えられないため、読み込みもロック内で行う
+    with _user_lock(user_id):
+        data = _read_user_file(user_id)
+    result = UserData(data or {})
+    result._base = copy.deepcopy(dict(result))
+    return result
+
+
+def _merge_value(base, ours, theirs):
+    """3方向マージ。自分が変更した値を優先し、変更していない値は他者（ファイルの最新）の値を採る。"""
+    if ours == base:
+        return theirs
+    if theirs == base or theirs == ours:
+        return ours
+    if isinstance(base, dict) and isinstance(ours, dict) and isinstance(theirs, dict):
+        merged = {}
+        for key in list(theirs) + [k for k in ours if k not in theirs]:
+            value = _merge_value(
+                base.get(key, _MISSING), ours.get(key, _MISSING), theirs.get(key, _MISSING)
+            )
+            if value is not _MISSING:
+                merged[key] = value
+        # 結果が自分の値と同じなら、呼び出し側が持つ参照を保つため元のオブジェクトを返す
+        return ours if merged == ours else merged
+    # 同じ値を双方が別々に変更した場合は、後から保存した側（自分）を優先する
+    return ours
 
 
 def _migrate_user_data_to_term_aware(data: dict) -> dict:
@@ -386,24 +433,49 @@ def _migrate_user_data_to_term_aware(data: dict) -> dict:
 
 
 def save_user_data(user_id, data):
-    path = os.path.join(BASE_DIR, f"user_{user_id}.json")
-    # Clean up legacy keys before saving
-    data_to_save = dict(data)
-    data_to_save.pop("classes", None)  # Remove old single-term keys
-    data_to_save.pop("exam_schedules", None)
+    """ユーザーデータを保存する。
 
-    # Write atomically: write to temp file then replace
-    tmp_path = path + ".tmp"
+    load_user_data で読んだデータなら、読み込み後に他の処理が保存した変更を消さないよう、
+    保存直前のファイル内容と3方向マージしてから書き込む。マージ結果は data にも反映する。
+    """
+    path = _user_data_path(user_id)
+    # Clean up legacy keys before saving
+    ours = {k: v for k, v in data.items() if k not in _LEGACY_KEYS}
+    base = getattr(data, "_base", None)
+
     try:
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            # 排他ロチE��を取得して書き込み
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-            json.dump(data_to_save, f, indent=4, ensure_ascii=False)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, path)
+        with _user_lock(user_id):
+            merged = ours
+            if base is not None:
+                theirs = _read_user_file(user_id)
+                if theirs is not None:
+                    merged = _merge_value(base, ours, theirs)
+
+            # Write atomically: write to a unique temp file then replace
+            fd, tmp_path = tempfile.mkstemp(
+                dir=BASE_DIR, prefix=f".user_{user_id}.", suffix=".json.tmp"
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(merged, f, indent=4, ensure_ascii=False)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp_path, path)
+            except BaseException:
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+                raise
     except Exception:
-        logger.exception(f"ユーザーチE�Eタ保存失敁E {path}")
+        logger.exception(f"ユーザーデータ保存失敗: {path}")
+        return
+
+    if isinstance(data, UserData):
+        if merged is not ours:
+            data.clear()
+            data.update(merged)
+        data._base = copy.deepcopy(dict(merged))
 
 
 async def send_dm(user, message):
@@ -415,7 +487,7 @@ async def send_dm(user, message):
             uid = user.id
         except Exception:
             uid = "unknown"
-        logger.error(f"DM送信失敁E {uid} ({e})")
+        logger.error(f"DM送信失敗: {uid} ({e})")
 
 
 async def send_long_dm(user, text, chunk_size=1900):

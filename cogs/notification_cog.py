@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import time
 import asyncio
 import logging
 import discord
@@ -15,7 +16,7 @@ from utils import (
     get_user_data_mtime,
     send_dm,
     send_long_dm,
-    get_current_term,
+    get_effective_term,
     get_makeups_on_date,
     get_room_for_date,
     is_class_cancelled,
@@ -34,6 +35,7 @@ SENT_REMINDERS_FILE = os.path.join(BASE_DIR, "sent_reminders.json")
 logger = logging.getLogger(__name__)
 APP_TIMEZONE = (os.getenv("APP_TIMEZONE") or "Asia/Tokyo").strip()
 GRACE_WINDOW_SECONDS = int(os.getenv("NOTIF_GRACE_WINDOW", "300"))
+USER_FETCH_RETRY_SECONDS = 600
 
 
 def _now_local() -> datetime:
@@ -99,7 +101,36 @@ class NotificationCog(commands.Cog):
         self._last_notif_key = None
         self._sent_reminders: dict[int, set] = _load_sent_reminders()
         self._notif_lock = asyncio.Lock()
+        # ループは毎秒動くため、ユーザーとデータをキャッシュして API 呼び出しとファイル読み込みを減らす
+        self._users: dict[int, discord.abc.User] = {}
+        self._fetch_retry_at: dict[int, float] = {}
+        self._data_cache: dict[int, tuple[float, dict]] = {}
         self.notification_loop.start()
+
+    async def _get_user(self, user_id: int):
+        user = self.bot.get_user(user_id) or self._users.get(user_id)
+        if user is not None:
+            return user
+        # 取得に失敗したユーザー（退会済みなど）は、しばらく fetch_user を呼ばない
+        if time.monotonic() < self._fetch_retry_at.get(user_id, 0):
+            return None
+        try:
+            user = await self.bot.fetch_user(user_id)
+        except Exception as e:
+            logger.warning(f"[WARN] ユーザー取得失敗 user={user_id}: {e}")
+            self._fetch_retry_at[user_id] = time.monotonic() + USER_FETCH_RETRY_SECONDS
+            return None
+        self._users[user_id] = user
+        return user
+
+    def _get_data(self, user_id: int) -> dict:
+        """ファイルが更新されたときだけ読み直す。"""
+        mtime = get_user_data_mtime(user_id)
+        cached = self._data_cache.get(user_id)
+        if cached is None or cached[0] != mtime:
+            cached = (mtime, load_user_data(user_id))
+            self._data_cache[user_id] = cached
+        return cached[1]
 
     def cog_unload(self):
         self.notification_loop.cancel()
@@ -140,17 +171,17 @@ class NotificationCog(commands.Cog):
 
                 try:
                     user_id = int(filename.split("_")[1].split(".")[0])
-                    user = self.bot.get_user(user_id)
-                    if user is None:
-                        user = await self.bot.fetch_user(user_id)
-                except Exception:
+                except ValueError:
+                    continue
+                user = await self._get_user(user_id)
+                if user is None:
                     continue
 
-                data = load_user_data(user_id)
+                data = self._get_data(user_id)
                 if not data:
                     continue
 
-                term = get_current_term(user_id)
+                term = get_effective_term(user_id, data)
                 term_ranges = data.get("term_ranges", {}) or {}
                 term_range = term_ranges.get(term)
                 if term_range:
@@ -214,8 +245,8 @@ class NotificationCog(commands.Cog):
 
                     exam_cfg = user_notify.get("exam") or DEFAULT_NOTIFY["exam"]
                     offsets = (
-                        int(exam_cfg.get("first", 30)) * 60,
-                        int(exam_cfg.get("second", 15)) * 60,
+                        int(exam_cfg.get("first", DEFAULT_NOTIFY["exam"]["first"])) * 60,
+                        int(exam_cfg.get("second", DEFAULT_NOTIFY["exam"]["second"])) * 60,
                     )
 
                     for cls_item in final_classes:
@@ -289,8 +320,8 @@ class NotificationCog(commands.Cog):
 
                     normal_cfg = user_notify.get("normal") or DEFAULT_NOTIFY["normal"]
                     offsets = (
-                        int(normal_cfg.get("first", 15)) * 60,
-                        int(normal_cfg.get("second", 5)) * 60,
+                        int(normal_cfg.get("first", DEFAULT_NOTIFY["normal"]["first"])) * 60,
+                        int(normal_cfg.get("second", DEFAULT_NOTIFY["normal"]["second"])) * 60,
                     )
 
                     for cls_item in final_classes:
@@ -403,8 +434,8 @@ class NotificationSettingsCog(commands.GroupCog, name="notify"):
         self,
         interaction: discord.Interaction,
         notify_type: str,
-        first: int,
-        second: int,
+        first: app_commands.Range[int, 0, 180],
+        second: app_commands.Range[int, 0, 180],
     ):
         if notify_type not in ["normal", "exam"]:
             await interaction.response.send_message(
@@ -436,6 +467,20 @@ class NotificationSettingsCog(commands.GroupCog, name="notify"):
     async def set_period_time(
         self, interaction: discord.Interaction, period: str, time: str
     ):
+        # 不正な時刻を保存すると、その時限の通知がエラーも出ずに止まるため検証する
+        period = period.strip()
+        time = time.strip()
+        if period not in PERIOD_TO_TIME:
+            await interaction.response.send_message(
+                f"時限は {'・'.join(PERIOD_TO_TIME)} のいずれかを指定してください。",
+                ephemeral=True,
+            )
+            return
+        if not re.match(r"^(2[0-3]|[01]?\d):[0-5]\d$", time):
+            await interaction.response.send_message(
+                "時刻は「HH:MM」の形式で入力してください（例：09:00）。", ephemeral=True
+            )
+            return
         user_id = interaction.user.id
         data = load_user_data(user_id)
         data.setdefault("period_overrides", {})[period] = time
