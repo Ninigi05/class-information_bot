@@ -26,7 +26,13 @@ DISCORD_OAUTH_TOKEN_URL = "https://discord.com/api/oauth2/token"
 DISCORD_API_USER_URL = "https://discord.com/api/users/@me"
 
 # =============== FastAPI ===============
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
+# JWT の署名鍵。推測されるとログイントークンを偽造できるため、初期値は持たせない
+# 生成例: python -c "import secrets; print(secrets.token_urlsafe(48))"
+SECRET_KEY = os.getenv("SECRET_KEY", "").strip()
+if len(SECRET_KEY) < 32:
+    raise RuntimeError(
+        "SECRET_KEY が未設定、または短すぎます（32文字以上）。.env に設定してください。"
+    )
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 30  # 30日間
 

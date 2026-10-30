@@ -11,23 +11,11 @@ from pydantic import BaseModel, Field
 import gmail_oauth
 
 from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
 
-from utils import (
-    load_user_data,
-    save_user_data,
-    WEEKDAYS,
-    PERIOD_TO_TIME,
-    WEEKDAY_MAP,
-    TERM_FIRST,
-    TERM_SECOND,
-    normalize_term_key,
-    get_current_term,
-)
-from api_security import verify_api_key
+from utils import TERM_FIRST, normalize_term_key
 from web_link_service import create_link_key
 
 logger = logging.getLogger(__name__)
@@ -116,8 +104,11 @@ if HAS_API_ROUTERS:
     web_app.include_router(makeup.router)
     web_app.include_router(settings.router)
 
-# 静的ファイル配信
-web_app.mount("/static", StaticFiles(directory="web"), name="static")
+# 静的ファイル配信（catch_all から web/ 配下のファイルを返す）
+WEB_ROOT = os.path.realpath("web")
+SERVABLE_EXTENSIONS = {
+    ".html", ".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp", ".mp4",
+}
 
 # ============ 認証エンドポイント ============
 
@@ -236,15 +227,6 @@ web_app.add_middleware(
     allow_headers=["*"],
     expose_headers=["X-API-Version"],
 )
-
-
-class ClassUpsertRequest(BaseModel):
-    """授業の追加/更新リクエスト。"""
-
-    weekday: str = Field(..., description="曜日（例: 月曜日）")
-    period: str = Field(..., description="時限（例: 1）")
-    subject: str = Field(..., min_length=1, description="授業名")
-    room: str = Field(..., min_length=1, description="教室")
 
 
 class WebClassDraft(BaseModel):
@@ -375,32 +357,6 @@ def _build_feature_payload(
     return jsonable_encoder(out)
 
 
-def _validate_weekday_and_period(weekday: str, period: str) -> None:
-    if weekday not in WEEKDAY_MAP:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"無効な曜日です: {weekday}",
-        )
-    if str(period) not in PERIOD_TO_TIME:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"無効な時限です: {period}",
-        )
-
-
-def _term_classes(user_data: dict, user_id: int, term: Optional[str]) -> list[dict]:
-    """指定学期（未指定時は現在の学期）の授業リストを返す（user_data 内のリストそのもの）。"""
-    selected = normalize_term_key(term) if term else get_current_term(user_id)
-    return user_data.setdefault("classes_by_term", {}).setdefault(selected, [])
-
-
-def _find_class_index(classes: list[dict], day: int, period: str) -> int:
-    for i, c in enumerate(classes):
-        if int(c.get("day", -1)) == day and str(c.get("period")) == str(period):
-            return i
-    return -1
-
-
 # ============ ヘルスチェック ============
 
 
@@ -474,253 +430,6 @@ async def issue_link_key(payload: dict[str, Any]):
         )
 
 
-# ============ ユーザーデータエンドポイント ============
-
-
-@web_app.get("/api/user/{user_id}/classes")
-async def get_user_classes(
-    user_id: int,
-    term: Optional[str] = None,
-    _: bool = Depends(verify_api_key),
-):
-    """
-    特定ユーザーの授業一覧を取得
-
-    Args:
-        user_id: Discord ユーザーID
-        _: API_KEY 検証（依存関数）
-
-    Returns:
-        授業データ
-    """
-    try:
-        user_data = load_user_data(user_id)
-        classes = _term_classes(user_data, user_id, term)
-
-        # weekday 番号を日本語に変換（表示用）
-        for cls in classes:
-            if "day" in cls and isinstance(cls["day"], int):
-                day_num = cls["day"]
-                if 0 <= day_num < len(WEEKDAYS):
-                    cls["weekday_name"] = WEEKDAYS[day_num]
-
-        logger.info(f"授業一覧取得: user_id={user_id}, count={len(classes)}")
-
-        return {
-            "user_id": user_id,
-            "count": len(classes),
-            "classes": classes,
-            "weekdays": WEEKDAYS,
-            "period_to_time": PERIOD_TO_TIME,
-        }
-    except Exception as e:
-        logger.exception(f"授業一覧取得エラー (user_id={user_id}): {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="授業データの取得に失敗しました",
-        )
-
-
-@web_app.post("/api/user/{user_id}/classes/upsert")
-async def upsert_user_class(
-    user_id: int,
-    payload: ClassUpsertRequest,
-    term: Optional[str] = None,
-    _: bool = Depends(verify_api_key),
-):
-    """授業を追加、存在する場合は上書きする。"""
-    try:
-        _validate_weekday_and_period(payload.weekday, payload.period)
-        user_data = load_user_data(user_id)
-        classes = _term_classes(user_data, user_id, term)
-        day = WEEKDAY_MAP[payload.weekday]
-        idx = _find_class_index(classes, day, payload.period)
-
-        item = {
-            "day": day,
-            "period": str(payload.period),
-            "subject": payload.subject.strip(),
-            "room": payload.room.strip(),
-        }
-
-        if idx >= 0:
-            classes[idx] = item
-            action = "updated"
-        else:
-            classes.append(item)
-            action = "created"
-
-        save_user_data(user_id, user_data)
-        logger.info(
-            "授業 upsert: user_id=%s weekday=%s period=%s action=%s",
-            user_id,
-            payload.weekday,
-            payload.period,
-            action,
-        )
-
-        return {
-            "ok": True,
-            "action": action,
-            "class": {**item, "weekday_name": payload.weekday},
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"授業 upsert エラー (user_id={user_id}): {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="授業データの保存に失敗しました",
-        )
-
-
-@web_app.delete("/api/user/{user_id}/classes/{weekday}/{period}")
-async def delete_user_class(
-    user_id: int,
-    weekday: str,
-    period: str,
-    term: Optional[str] = None,
-    _: bool = Depends(verify_api_key),
-):
-    """指定曜日・時限の授業を削除する。"""
-    try:
-        _validate_weekday_and_period(weekday, period)
-        user_data = load_user_data(user_id)
-        classes = _term_classes(user_data, user_id, term)
-        day = WEEKDAY_MAP[weekday]
-        idx = _find_class_index(classes, day, period)
-        if idx < 0:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="削除対象の授業が見つかりません",
-            )
-
-        removed = classes.pop(idx)
-        save_user_data(user_id, user_data)
-        logger.info(
-            "授業 delete: user_id=%s weekday=%s period=%s", user_id, weekday, period
-        )
-
-        return {
-            "ok": True,
-            "deleted": {**removed, "weekday_name": weekday},
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"授業 delete エラー (user_id={user_id}): {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="授業データの削除に失敗しました",
-        )
-
-
-@web_app.get("/api/user/{user_id}/schedule-table")
-async def get_schedule_table(
-    user_id: int,
-    term: Optional[str] = None,
-    _: bool = Depends(verify_api_key),
-):
-    """
-    時間割テーブル形式でデータを取得
-
-    Args:
-        user_id: Discord ユーザーID
-        _: API_KEY 検証（依存関数）
-
-    Returns:
-        {weekday: {period: class_info}} 形式
-    """
-    try:
-        user_data = load_user_data(user_id)
-        classes = _term_classes(user_data, user_id, term)
-
-        # テーブル形式に変換
-        table: dict[str, dict[str, Any | None]] = {}
-        for weekday_name in WEEKDAYS:
-            table[weekday_name] = {}
-            for period in PERIOD_TO_TIME.keys():
-                table[weekday_name][period] = None
-
-        # クラス情報をテーブルに配置
-        for cls in classes:
-            day = cls.get("day")
-            period = cls.get("period")
-            if day is not None and 0 <= day < len(WEEKDAYS):
-                weekday_name = WEEKDAYS[day]
-                table[weekday_name][period] = cls
-
-        logger.info(f"時間割テーブル取得: user_id={user_id}")
-
-        return {
-            "user_id": user_id,
-            "table": table,
-            "weekdays": WEEKDAYS,
-            "periods": list(PERIOD_TO_TIME.keys()),
-            "period_to_time": PERIOD_TO_TIME,
-        }
-    except Exception as e:
-        logger.exception(f"時間割テーブル取得エラー (user_id={user_id}): {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="時間割データの取得に失敗しました",
-        )
-
-
-@web_app.get("/api/user/{user_id}/all-data")
-async def get_user_all_data(
-    user_id: int,
-    _: bool = Depends(verify_api_key),
-):
-    """
-    ユーザーのすべてのデータを取得
-
-    Args:
-        user_id: Discord ユーザーID
-        _: API_KEY 検証（依存関数）
-
-    Returns:
-        ユーザーの全データ
-    """
-    try:
-        user_data = load_user_data(user_id)
-
-        logger.info(f"全データ取得: user_id={user_id}")
-
-        return {
-            "user_id": user_id,
-            "data": user_data,
-            "constants": {
-                "weekdays": WEEKDAYS,
-                "period_to_time": PERIOD_TO_TIME,
-            },
-        }
-    except Exception as e:
-        logger.exception(f"全データ取得エラー (user_id={user_id}): {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="ユーザーデータの取得に失敗しました",
-        )
-
-
-@web_app.get("/api/constants")
-async def get_constants(
-    _: bool = Depends(verify_api_key),
-):
-    """
-    アプリケーション定数を取得
-    （曜日、時限情報等）
-
-    Returns:
-        定数データ
-    """
-    return {
-        "weekdays": WEEKDAYS,
-        "period_to_time": PERIOD_TO_TIME,
-        "periods": list(PERIOD_TO_TIME.keys()),
-    }
-
-
 # ============ エラーハンドリング ============
 
 
@@ -779,12 +488,13 @@ async def catch_all(rest_of_path: str):
             logger.info(f"[Web Request] コールバックページを配信します: {template_path}")
             return FileResponse(template_path)
 
-    # 相対パスの "./" を除去して正規化
-    clean_file_path = rest_of_path.lstrip("./")
-    file_path = os.path.join("web", clean_file_path)
-
-    # 物理ファイルが存在すれば返す
-    if os.path.exists(file_path) and os.path.isfile(file_path):
+    # 実パスに解決し、web/ の外（../ によるパストラバーサル）や配信対象外の拡張子は返さない
+    file_path = os.path.realpath(os.path.join(WEB_ROOT, rest_of_path))
+    if (
+        os.path.commonpath([WEB_ROOT, file_path]) == WEB_ROOT
+        and os.path.splitext(file_path)[1].lower() in SERVABLE_EXTENSIONS
+        and os.path.isfile(file_path)
+    ):
         logger.info(f"[Web Request] 物理ファイルを配信します: {file_path}")
         return FileResponse(file_path)
 

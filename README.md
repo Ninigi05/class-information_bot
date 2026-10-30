@@ -474,12 +474,6 @@ Discord OAuth2（スコープ `identify` のみ）でログインし、サーバ
 | GET | `/api/public/gmail-auth-url` | Gmail 認証 URL と `state`（ログイン不要ページ用） |
 | POST | `/api/public/issue-link-key` | 連携キーの発行 |
 
-### API（API キーが必要：`X-API-Key` ヘッダー、旧形式）
-
-`/api/user/{user_id}/classes`、`/classes/upsert`、`/classes/{weekday}/{period}`、`/schedule-table`、`/all-data`、`/api/constants`。
-授業を扱うエンドポイントは `?term=前期` のように学期を指定でき、省略時は現在の学期を対象にします。
-詳しくは [README_WEB_API.md](README_WEB_API.md) を参照してください。
-
 ---
 
 ## セットアップと運用
@@ -505,12 +499,11 @@ Discord OAuth2（スコープ `identify` のみ）でログインし、サーバ
 | `WEB_HOST` / `WEB_PORT` | | Web サーバーの待受（初期値 `0.0.0.0` / `8000`） |
 | `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` | Web ログイン時 | Discord OAuth2 |
 | `DISCORD_REDIRECT_URI` | | 初期値は `TUNNEL_PUBLIC_BASE_URL/auth/callback`、なければ `http://localhost:8000/auth/callback` |
-| `SECRET_KEY` | Web ログイン時 | JWT の署名鍵（必ず変更する） |
+| `SECRET_KEY` | Web ログイン時 | JWT の署名鍵（32文字以上のランダムな値。未設定だと Web ログインが無効になる）。生成: `python -c "import secrets; print(secrets.token_urlsafe(48))"` |
 | `TUNNEL_PUBLIC_BASE_URL` | | 公開 URL（Cloudflare Tunnel など）。CORS とリダイレクト URL に使用 |
 | `GITHUB_PAGES_URL` | | GitHub Pages の URL（ログ表示用） |
 | `CORS_ORIGIN_GITHUB_PAGES` | | 追加で許可するオリジン（カンマ区切り） |
 | `CORS_ORIGIN_REGEX` | | 許可するオリジンの正規表現（初期値 `*.github.io`） |
-| `API_KEY` | 旧 API 使用時 | `X-API-Key` で照合するキー |
 | `GMAIL_CREDENTIALS` | | Google OAuth クライアント JSON のパス（未指定時は `client_secret*.json` などを自動検出） |
 | `GMAIL_REDIRECT_URI` | | Gmail 認証のリダイレクト先（初期値 `https://ninigi05.github.io/oauth-redirect/`） |
 | `DEBUG` | | `true` で `/docs`・`/redoc`・`/openapi.json` を公開（本番では設定しない） |
@@ -556,10 +549,9 @@ cogs/
   exam_cog.py            /exam
   notification_cog.py    授業前通知・朝の一覧・授業回数カウント、/notify
   setting_cog.py         /setting
-web_api_integration.py   Bot と一緒に動く FastAPI アプリ（ページ配信・公開 API・旧 API）
+web_api_integration.py   Bot と一緒に動く FastAPI アプリ（ページ配信・公開 API）
 web_link_service.py      連携キーの発行・消費
 gmail_oauth.py           Gmail 認証（PKCE）の URL 発行・コード交換
-api_security.py          旧 API の API キー認証
 web/
   api/                   ダッシュボード用 API（classes, exams, makeup, settings, notification）
   auth.py, config.py     Discord OAuth2 と JWT

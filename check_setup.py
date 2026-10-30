@@ -12,10 +12,9 @@ def check_env():
     print("\n📋 環境変数チェック")
     print("-" * 40)
     
-    required_vars = ["DISCORD_TOKEN"]
+    required_vars = ["DISCORD_TOKEN", "SECRET_KEY"]
     optional_vars = [
         "GUILD_ID",
-        "API_KEY",
         "WEB_HOST",
         "WEB_PORT",
         "GMAIL_CREDENTIALS",
@@ -53,12 +52,10 @@ def check_files():
     required_files = [
         "main.py",
         "utils.py",
-        "api_security.py",
         "web_api_integration.py",
     ]
     
     optional_files = [
-        "schedule_viewer.html",
         "requirements.txt",
     ]
     

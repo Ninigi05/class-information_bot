@@ -1,20 +1,48 @@
 # Pythonの一時ファイル
 __pycache__/
 *.py[cod]
+.venv/
+venv/
 
 # 環境変数（トークンなど）
 .env
+.env.*
+
+# 認証情報・トークン
+gmail_tokens/
+*.pickle
+client_secret*.json
+credentials.json
+gmail_credentials.json
 
 # ユーザーデータと一時的な状態記録
 *.json
-!example.json  # もし雛形があればそれだけ残す設定
+*.json.tmp
+*.bak
 
 # アーカイブやドキュメント（必要なら手動で管理）
 *.zip
 *.pdf
 
-# ログファイル
+# ログファイル（ローテーション後の bot.log.1 なども含む）
+logs/
 *.log
+*.log.*
 
 # 実行時生成ファイル
-runtime/quick_tunnel_url.txt
+runtime/
+
+# 調査レポート（脆弱性情報を含むため公開しない）
+SECURITY_AND_BUG_REPORT.md
+
+# エディタ・OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# 参照されていない手元用ファイル
+sin_wave.png
+subject_score.png
+*.mp4
+.clineignore
