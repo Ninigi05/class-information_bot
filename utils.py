@@ -129,14 +129,189 @@ def get_term_for_date(data: dict, date_str: str) -> str:
     return TERM_FIRST if 4 <= month <= 9 else TERM_SECOND
 
 
+def _all_classes(data: dict):
+    for classes in (data.get("classes_by_term") or {}).values():
+        yield from classes or []
+
+
+def _all_exam_classes(data: dict):
+    for schedules in (data.get("exam_schedules_by_term") or {}).values():
+        for sched in schedules or []:
+            yield from sched.get("classes", []) or []
+
+
+# ============ 曜日変更・教室変更 ============
+# 曜日変更は data["day_overrides"]（[{date, weekday}]）、教室変更は data["room_overrides"]（[{date, period, room}]）に保存する。
+# 以前の形式（各授業の overrides / room_overrides）も読み取り・削除の対象にする。
+
+
+def get_weekday_override(data: dict, date_str: str) -> int | None:
+    """指定日の曜日変更先（0=月〜6=日）を返す。なければ None。"""
+    for d in data.get("day_overrides", []) or []:
+        if isinstance(d, dict) and d.get("date") == date_str:
+            wd = d.get("weekday")
+            if wd in WEEKDAY_MAP:
+                return WEEKDAY_MAP[wd]
+            try:
+                return int(wd)
+            except (TypeError, ValueError):
+                pass
+    for cls in _all_classes(data):
+        day = (cls.get("overrides") or {}).get(date_str)
+        if day is not None:
+            try:
+                return int(day)
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+def get_weekday_for_date(data: dict, date_str: str) -> int:
+    """曜日変更を反映した、指定日に使う時間割の曜日を返す。"""
+    override = get_weekday_override(data, date_str)
+    if override is not None:
+        return override
+    return datetime.strptime(date_str, "%Y-%m-%d").weekday()
+
+
+def list_day_overrides(data: dict) -> list[dict]:
+    """曜日変更の一覧（[{date, weekday}]、日付順）。"""
+    dates = {
+        d.get("date")
+        for d in data.get("day_overrides", []) or []
+        if isinstance(d, dict) and d.get("date")
+    }
+    for cls in _all_classes(data):
+        dates.update((cls.get("overrides") or {}).keys())
+    result = []
+    for date_str in sorted(dates):
+        wd = get_weekday_override(data, date_str)
+        if wd is not None and 0 <= wd < len(WEEKDAYS):
+            result.append({"date": date_str, "weekday": WEEKDAYS[wd]})
+    return result
+
+
+def set_day_override(data: dict, date_str: str, weekday: str) -> None:
+    """指定日を別の曜日の時間割にする。入力不正時は ValueError。"""
+    datetime.strptime(date_str, "%Y-%m-%d")
+    if weekday not in WEEKDAY_MAP:
+        raise ValueError(f"無効な曜日です（{weekday}）")
+    remove_day_override(data, date_str)
+    items = data.setdefault("day_overrides", [])
+    items.append({"date": date_str, "weekday": weekday})
+    items.sort(key=lambda d: d.get("date", ""))
+
+
+def remove_day_override(data: dict, date_str: str) -> bool:
+    """曜日変更を取り消す。取り消したら True。"""
+    removed = False
+    items = data.get("day_overrides", []) or []
+    kept = [d for d in items if not (isinstance(d, dict) and d.get("date") == date_str)]
+    if len(kept) != len(items):
+        data["day_overrides"] = kept
+        removed = True
+    for cls in _all_classes(data):
+        if date_str in (cls.get("overrides") or {}):
+            del cls["overrides"][date_str]
+            removed = True
+    return removed
+
+
+def replace_day_overrides(data: dict, entries: list) -> None:
+    """曜日変更を entries の内容で置き換える（不正な項目は無視）。"""
+    for d in list_day_overrides(data):
+        remove_day_override(data, d["date"])
+    for d in entries or []:
+        if not isinstance(d, dict):
+            continue
+        try:
+            set_day_override(
+                data, str(d.get("date", "")).strip(), str(d.get("weekday", "")).strip()
+            )
+        except ValueError:
+            continue
+
+
+def list_room_overrides(data: dict) -> list[dict]:
+    """教室変更の一覧（[{date, period, room}]、日付・時限順）。"""
+    found: dict[tuple[str, str], str] = {}
+    for cls in list(_all_classes(data)) + list(_all_exam_classes(data)):
+        for date_str, room in (cls.get("room_overrides") or {}).items():
+            if room:
+                found.setdefault((date_str, str(cls.get("period"))), room)
+    # 新しい形式の設定を優先する
+    for r in data.get("room_overrides", []) or []:
+        if isinstance(r, dict) and r.get("date") and r.get("room"):
+            found[(r["date"], str(r.get("period")))] = r["room"]
+    return [
+        {"date": d, "period": p, "room": room}
+        for (d, p), room in sorted(found.items())
+    ]
+
+
+def set_room_override(data: dict, date_str: str, period, room: str) -> None:
+    """指定日・時限の教室を変更する。入力不正時は ValueError。"""
+    period = _validate_date_period(date_str, period)
+    room = (room or "").strip()
+    if not room:
+        raise ValueError("教室を入力してください")
+    remove_room_override(data, date_str, period)
+    items = data.setdefault("room_overrides", [])
+    items.append({"date": date_str, "period": period, "room": room})
+    items.sort(key=lambda r: (r.get("date", ""), str(r.get("period", ""))))
+
+
+def remove_room_override(data: dict, date_str: str, period) -> bool:
+    """教室変更を取り消す。取り消したら True。"""
+    period = str(period)
+    removed = False
+    items = data.get("room_overrides", []) or []
+    kept = [
+        r
+        for r in items
+        if not (
+            isinstance(r, dict)
+            and r.get("date") == date_str
+            and str(r.get("period")) == period
+        )
+    ]
+    if len(kept) != len(items):
+        data["room_overrides"] = kept
+        removed = True
+    for cls in list(_all_classes(data)) + list(_all_exam_classes(data)):
+        if str(cls.get("period")) == period and date_str in (
+            cls.get("room_overrides") or {}
+        ):
+            del cls["room_overrides"][date_str]
+            removed = True
+    return removed
+
+
+def replace_room_overrides(data: dict, entries: list) -> None:
+    """教室変更を entries の内容で置き換える（不正な項目は無視）。"""
+    for r in list_room_overrides(data):
+        remove_room_override(data, r["date"], r["period"])
+    for r in entries or []:
+        if not isinstance(r, dict):
+            continue
+        try:
+            set_room_override(
+                data,
+                str(r.get("date", "")).strip(),
+                str(r.get("period", "")).strip(),
+                str(r.get("room", "")),
+            )
+        except ValueError:
+            continue
+
+
 def get_regular_classes_on_date(data: dict, term: str, date_str: str) -> list[dict]:
     """指定日に実施される通常授業（曜日上書きを考慮、休講は除外しない）を返す。"""
-    weekday = datetime.strptime(date_str, "%Y-%m-%d").weekday()
+    weekday = get_weekday_for_date(data, date_str)
     result = []
     for cls in data.get("classes_by_term", {}).get(term, []) or []:
-        day = (cls.get("overrides") or {}).get(date_str, cls.get("day"))
         try:
-            if int(day) == weekday:
+            if int(cls.get("day")) == weekday:
                 result.append(cls)
         except (TypeError, ValueError):
             continue
@@ -144,10 +319,7 @@ def get_regular_classes_on_date(data: dict, term: str, date_str: str) -> list[di
 
 
 def get_room_for_date(data: dict, cls: dict, date_str: str) -> str:
-    """指定日の教室を返す（/class setroom の授業別設定 → Webの教室上書き → 通常の教室）。"""
-    room_overrides = cls.get("room_overrides") or {}
-    if room_overrides.get(date_str):
-        return room_overrides[date_str]
+    """指定日の教室を返す（教室変更 → 以前の形式の授業別設定 → 通常の教室）。"""
     for r in data.get("room_overrides", []) or []:
         if (
             isinstance(r, dict)
@@ -156,7 +328,122 @@ def get_room_for_date(data: dict, cls: dict, date_str: str) -> str:
             and r.get("room")
         ):
             return r["room"]
+    room_overrides = cls.get("room_overrides") or {}
+    if room_overrides.get(date_str):
+        return room_overrides[date_str]
     return cls.get("room") or "未設定"
+
+
+# ============ 定期試験の自動追加 ============
+# 定期試験ありの授業（has_exam が False でない授業）は、その学期の試験時間割へ同じ曜日・時限で自動追加する。
+# 自動追加した項目は from_class=True を持ち、手動で追加した項目とは区別する。
+# 試験時間割から自動追加の項目を削除した場合は、その時間割の excluded（"曜日|時限"）に記録して再追加しない。
+
+
+def class_has_exam(cls: dict) -> bool:
+    return cls.get("has_exam", True) is not False
+
+
+def _slot_key(day, period) -> str:
+    return f"{day}|{period}"
+
+
+def _sync_exam_entry(sched: dict, cls: dict) -> None:
+    day, period = cls.get("day"), str(cls.get("period"))
+    entries = sched.setdefault("classes", [])
+    entries[:] = [
+        e
+        for e in entries
+        if not (
+            e.get("from_class")
+            and str(e.get("day")) == str(day)
+            and str(e.get("period")) == period
+        )
+    ]
+    if not class_has_exam(cls):
+        return
+    if _slot_key(day, period) in (sched.get("excluded") or []):
+        return
+    if any(
+        str(e.get("day")) == str(day) and str(e.get("period")) == period
+        for e in entries
+    ):
+        return  # 手動で登録した試験を優先する
+    entries.append(
+        {
+            "day": day,
+            "period": period,
+            "subject": cls.get("subject"),
+            "room": cls.get("room"),
+            "from_class": True,
+        }
+    )
+
+
+def sync_exam_for_class(data: dict, term: str, cls: dict) -> None:
+    """授業 cls の定期試験の有無を、その学期の全試験時間割に反映する。"""
+    for sched in data.get("exam_schedules_by_term", {}).get(term, []) or []:
+        _sync_exam_entry(sched, cls)
+
+
+def remove_exam_for_class(data: dict, term: str, day, period) -> None:
+    """削除した授業の、自動追加した試験を取り除く。"""
+    sync_exam_for_class(
+        data, term, {"day": day, "period": str(period), "has_exam": False}
+    )
+
+
+def sync_exams_after_classes_replaced(data: dict, term: str, old_classes: list) -> None:
+    """時間割を丸ごと置き換えた後に、試験時間割の自動追加分を合わせる。"""
+    new_slots = {
+        _slot_key(c.get("day"), c.get("period"))
+        for c in data.get("classes_by_term", {}).get(term, []) or []
+    }
+    for c in old_classes or []:
+        if _slot_key(c.get("day"), c.get("period")) not in new_slots:
+            remove_exam_for_class(data, term, c.get("day"), c.get("period"))
+    for c in data.get("classes_by_term", {}).get(term, []) or []:
+        sync_exam_for_class(data, term, c)
+
+
+def populate_exam_schedule(data: dict, term: str, sched: dict) -> int:
+    """新しく作った試験時間割に、定期試験ありの授業を追加する。追加件数を返す。"""
+    before = len(sched.get("classes", []) or [])
+    for c in data.get("classes_by_term", {}).get(term, []) or []:
+        _sync_exam_entry(sched, c)
+    return len(sched.get("classes", []) or []) - before
+
+
+def remove_exam_class(sched: dict, day, period) -> int:
+    """試験時間割から指定の曜日・時限を削除する。自動追加分は再追加しないよう記録する。"""
+    entries = sched.get("classes", []) or []
+    kept = [
+        e
+        for e in entries
+        if not (str(e.get("day")) == str(day) and str(e.get("period")) == str(period))
+    ]
+    removed = [e for e in entries if e not in kept]
+    if any(e.get("from_class") for e in removed):
+        excluded = sched.setdefault("excluded", [])
+        key = _slot_key(day, period)
+        if key not in excluded:
+            excluded.append(key)
+    sched["classes"] = kept
+    return len(removed)
+
+
+def add_exam_class(sched: dict, entry: dict) -> None:
+    """試験時間割に手動で授業を追加する（同じ曜日・時限の既存分は置き換える）。"""
+    day, period = entry.get("day"), str(entry.get("period"))
+    sched["classes"] = [
+        e
+        for e in sched.get("classes", []) or []
+        if not (str(e.get("day")) == str(day) and str(e.get("period")) == period)
+    ]
+    sched["classes"].append(entry)
+    key = _slot_key(day, period)
+    if key in (sched.get("excluded") or []):
+        sched["excluded"].remove(key)
 
 
 def is_class_cancelled(data: dict, date_str: str, period) -> bool:
@@ -476,6 +763,17 @@ def save_user_data(user_id, data):
             data.clear()
             data.update(merged)
         data._base = copy.deepcopy(dict(merged))
+
+
+def delete_user_data(user_id) -> bool:
+    """利用者のデータファイルを削除する。削除したら True。"""
+    path = _user_data_path(user_id)
+    with _user_lock(user_id):
+        if not os.path.exists(path):
+            return False
+        os.remove(path)
+    logger.info(f"ユーザーデータを削除しました: user={user_id}")
+    return True
 
 
 async def send_dm(user, message):

@@ -19,6 +19,7 @@ from utils import (
     get_effective_term,
     get_makeups_on_date,
     get_room_for_date,
+    get_weekday_for_date,
     is_class_cancelled,
     WEEKDAYS,
     WEEKDAY_MAP,
@@ -163,7 +164,6 @@ class NotificationCog(commands.Cog):
 
             now_seconds = now.hour * 3600 + now.minute * 60 + now.second
             today_str = now.strftime("%Y-%m-%d")
-            today_weekday = now.weekday()
 
             for filename in os.listdir(BASE_DIR):
                 if not filename.startswith("user_") or not filename.endswith(".json"):
@@ -225,11 +225,7 @@ class NotificationCog(commands.Cog):
                         continue
 
                 # 曜日上書きの適用
-                target_weekday = today_weekday
-                for cls_item in classes:
-                    if "overrides" in cls_item and today_str in cls_item["overrides"]:
-                        target_weekday = cls_item["overrides"][today_str]
-                        break
+                target_weekday = get_weekday_for_date(data, today_str)
 
                 if active_exam:
                     # --- 試験期間通知 ---

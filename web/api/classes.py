@@ -12,8 +12,11 @@ from utils import (
     WEEKDAYS,
     WEEKDAY_MAP,
     PERIOD_TO_TIME,
-    get_current_term,
     normalize_term_key,
+    class_has_exam,
+    sync_exam_for_class,
+    remove_exam_for_class,
+    sync_exams_after_classes_replaced,
 )
 from web.auth import TokenData, get_current_user
 from web.schemas import (
@@ -115,8 +118,10 @@ async def add_class(
             "period": class_data.period,
             "subject": class_data.subject,
             "room": class_data.room,
+            "has_exam": class_data.has_exam,
         }
         classes.append(new_class)
+        sync_exam_for_class(user_data, selected_term, new_class)
 
         # データを保存
         save_user_data(user_id, user_data)
@@ -128,7 +133,8 @@ async def add_class(
             f"・曜日: {class_data.weekday}\n"
             f"・時限: {class_data.period}限\n"
             f"・科目名: {class_data.subject}\n"
-            f"・教室: {class_data.room}"
+            f"・教室: {class_data.room}\n"
+            f"・定期試験: {'あり（試験時間割に自動追加）' if class_data.has_exam else 'なし'}"
         )
         await notify_user_change(user_id, msg)
 
@@ -182,7 +188,7 @@ async def update_class(
         # 対象の授業を探す
         target_class = None
         for cls in classes:
-            if cls.get("day") == day and cls.get("period") == period:
+            if cls.get("day") == day and str(cls.get("period")) == str(period):
                 target_class = cls
                 break
 
@@ -222,6 +228,17 @@ async def update_class(
         if update_data.room is not None:
             target_class["room"] = update_data.room
 
+        if update_data.has_exam is not None:
+            target_class["has_exam"] = update_data.has_exam
+
+        # 曜日・時限を変えた場合は元の枠の自動追加分を外し、新しい内容で試験時間割を合わせる
+        if (old_day, str(old_period)) != (
+            target_class.get("day"),
+            str(target_class.get("period")),
+        ):
+            remove_exam_for_class(user_data, selected_term, old_day, old_period)
+        sync_exam_for_class(user_data, selected_term, target_class)
+
         # データを保存
         save_user_data(user_id, user_data)
 
@@ -239,7 +256,8 @@ async def update_class(
             f"・学期: {selected_term}\n"
             f"・日時: {time_change_str}\n"
             f"・科目名: {old_subject} ➔ {target_class['subject']}\n"
-            f"・教室: {old_room} ➔ {target_class['room']}"
+            f"・教室: {old_room} ➔ {target_class['room']}\n"
+            f"・定期試験: {'あり' if class_has_exam(target_class) else 'なし'}"
         )
         await notify_user_change(user_id, msg)
 
@@ -292,7 +310,7 @@ async def delete_class(
         found = False
         deleted_class_info = None
         for i, cls in enumerate(classes):
-            if cls.get("day") == day and cls.get("period") == period:
+            if cls.get("day") == day and str(cls.get("period")) == str(period):
                 deleted_class_info = classes.pop(i)
                 found = True
                 break
@@ -303,6 +321,7 @@ async def delete_class(
                 detail="授業が見つかりません",
             )
 
+        remove_exam_for_class(user_data, selected_term, day, period)
         save_user_data(user_id, user_data)
 
         # DM通知を送信
@@ -362,10 +381,13 @@ async def bulk_save_classes(
                 "period": cls.period,
                 "subject": cls.subject,
                 "room": cls.room,
+                "has_exam": cls.has_exam,
             })
 
         # データベースを上書き保存
+        old_classes = list(user_data.get("classes_by_term", {}).get(selected_term, []) or [])
         user_data.setdefault("classes_by_term", {})[selected_term] = formatted_classes
+        sync_exams_after_classes_replaced(user_data, selected_term, old_classes)
         save_user_data(user_id, user_data)
 
         # DM通知を送信
@@ -420,7 +442,7 @@ async def get_class_table(
             period = cls.get("period")
             if day is not None and 0 <= day < len(WEEKDAYS):
                 weekday_name = WEEKDAYS[day]
-                table[weekday_name][period] = cls
+                table[weekday_name][period] = {**cls, "has_exam": class_has_exam(cls)}
 
         return table
     except Exception as e:

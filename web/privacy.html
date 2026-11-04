@@ -26,8 +26,8 @@
     <section class="bg-white rounded-2xl shadow border border-slate-200 p-5 md:p-7 space-y-4">
       <h2 class="text-lg font-bold">1. 取得する情報</h2>
       <ul class="list-disc pl-6 space-y-1 text-sm leading-6">
-        <li>Web画面で入力された授業情報、通知設定、上書き設定、試験時間割</li>
-        <li>Gmail連携時にユーザーが入力した認証コード</li>
+        <li>DiscordまたはWeb画面で登録された授業情報、通知設定、上書き設定、試験時間割、補講・休講</li>
+        <li>Gmail連携時に発行される認証トークン（読み取り専用。認証コード自体は保存しません）</li>
         <li>Discordでの連携に必要な一時的なリンクキー</li>
       </ul>
     </section>
@@ -42,6 +42,9 @@
       <ul class="list-disc pl-6 space-y-1 text-sm leading-6">
         <li>リンクキーはサーバー内に一時保存され、有効期限経過または利用後に削除されます。</li>
         <li>入力データはBot運用のために保存される場合があります。</li>
+        <li>Gmail連携中は、休講・授業変更に関するメールを定期的に確認します（件名で絞り込み、確認済みのメールはIDのみ記録します）。自動確認は /mail autoscan で停止できます。</li>
+        <li>Gmail連携は /mail unlink またはWebダッシュボードでいつでも解除でき、保存した認証トークンを削除します。</li>
+        <li>保存されている自分のデータは、Discordの /setting delete_data またはWebダッシュボードの「データの削除」からいつでもすべて削除できます。</li>
         <li>不正アクセス防止のため、合理的な範囲で安全管理措置を講じます。</li>
       </ul>
     </section>

@@ -26,7 +26,6 @@
             <button type="button" id="logoutBtn" class="px-2.5 py-1 rounded bg-rose-100 text-rose-700 hover:bg-rose-200 font-bold text-xs transition duration-150">ログアウト</button>
           </div>
           <div class="flex flex-wrap gap-2">
-            <a href="/exam.html" class="px-4 py-2 rounded-lg bg-indigo-600 text-white font-bold hover:bg-indigo-700 text-sm">試験時間割ページへ</a>
             <a href="https://discord.gg/5dJpUbgB4X" target="_blank" rel="noopener" class="px-4 py-2 rounded-lg bg-sky-600 text-white font-bold hover:bg-sky-700 text-sm">Discordサーバー</a>
             <a href="./privacy.html" class="px-4 py-2 rounded-lg bg-slate-700 text-white font-bold hover:bg-slate-800 text-sm">プライバシーポリシー</a>
             <a href="./terms.html" class="px-4 py-2 rounded-lg bg-slate-700 text-white font-bold hover:bg-slate-800 text-sm">利用規約</a>
@@ -47,7 +46,7 @@
       <div class="overflow-x-auto">
         <table id="timetable" class="min-w-full border border-slate-300"></table>
       </div>
-      <p class="text-xs text-slate-500">セルクリックで授業追加/編集。保存ボタンを押してサーバーへ保存します。</p>
+      <p class="text-xs text-slate-500">セルをクリックして授業を追加・編集すると、その場で保存されます。「試験なし」と表示された授業は試験時間割に自動追加されません。</p>
     </section>
 
     <!-- 通知・学期設定 -->
@@ -68,6 +67,14 @@
         <label class="block">
           <span class="text-sm font-semibold">朝の一覧通知時刻</span>
           <input id="morningTime" type="time" value="08:00" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border" />
+        </label>
+        <label class="block">
+          <span class="text-sm font-semibold">試験期間の通知 1回目（分）</span>
+          <input id="examFirst" type="number" min="0" max="180" value="30" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border" />
+        </label>
+        <label class="block">
+          <span class="text-sm font-semibold">試験期間の通知 2回目（分）</span>
+          <input id="examSecond" type="number" min="0" max="180" value="25" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border" />
         </label>
       </div>
 
@@ -91,13 +98,26 @@
       <div class="flex justify-end">
         <button id="saveSettingsBtnBottom" type="button" class="px-5 py-2 rounded bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-sm">設定を保存</button>
       </div>
+
+      <hr class="my-4 border-slate-200" />
+
+      <div>
+        <h3 class="text-sm font-bold text-slate-700">時限の開始時刻</h3>
+        <p class="text-xs text-slate-500 mt-1">時刻を変えると、その場で保存されます。「試験期間」は空欄なら通常の時刻を使います。</p>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="min-w-full border border-slate-300 text-sm">
+          <thead><tr><th class="border p-2 bg-slate-100">時限</th><th class="border p-2 bg-slate-100">通常</th><th class="border p-2 bg-slate-100">試験期間</th></tr></thead>
+          <tbody id="periodTimeRows"></tbody>
+        </table>
+      </div>
     </section>
 
     <!-- 時間割の上書き設定 -->
     <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7 space-y-4">
-      <div class="flex items-center justify-between">
+      <div>
         <h2 class="text-lg font-bold">🕒 時間割の上書き設定</h2>
-        <button type="button" id="saveOverridesBtn" class="px-4 py-2 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700 text-sm">上書き設定を保存する</button>
+        <p class="text-xs text-slate-500 mt-1">追加・削除はその場で保存されます（Discord の /class setday・/class setroom で登録したものも表示されます）。</p>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
         <label class="block"><span class="text-sm font-semibold">曜日変更 日付</span><input id="ovDayDate" type="date" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border" /></label>
@@ -115,6 +135,21 @@
         <button type="button" id="addRoomOverride" class="px-4 py-2 rounded bg-cyan-600 text-white font-bold hover:bg-cyan-700 h-10">教室上書き追加</button>
       </div>
       <div id="roomOverrideList" class="text-sm text-slate-700 mt-2"></div>
+    </section>
+
+    <!-- 試験時間割 -->
+    <section class="bg-white rounded-2xl shadow-md border border-slate-200 p-5 md:p-7 space-y-4">
+      <div>
+        <h2 class="text-lg font-bold">📖 試験時間割</h2>
+        <p class="text-xs text-slate-500 mt-1">期間中は通常の時間割の代わりに試験時間割で通知します。作成すると、定期試験ありの授業が同じ曜日・時限で自動追加されます（選択中の学期）。</p>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+        <label class="block"><span class="text-sm font-semibold">時間割名</span><input id="examName" type="text" placeholder="期末試験" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border placeholder-slate-400" /></label>
+        <label class="block"><span class="text-sm font-semibold">開始日</span><input id="examStart" type="date" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border" /></label>
+        <label class="block"><span class="text-sm font-semibold">終了日</span><input id="examEnd" type="date" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border" /></label>
+        <button type="button" id="addExam" class="px-4 py-2 rounded bg-indigo-600 text-white font-bold hover:bg-indigo-700 h-10">試験時間割を作成</button>
+      </div>
+      <div id="examList" class="space-y-4"></div>
     </section>
 
     <!-- 補講・休講 -->
@@ -157,6 +192,11 @@
         <a id="gmailAuthUrl" href="#" target="_blank" rel="noopener" class="hidden px-4 py-2 rounded bg-amber-100 text-amber-900 font-semibold border border-amber-300">Gmail認証ページを開く</a>
       </div>
       <label class="block"><span class="text-sm font-semibold">取得した認証コード（code）</span><input id="gmailAuthCode" type="text" class="mt-1 w-full rounded border-slate-300 px-3 py-2 border placeholder-slate-400" placeholder="4/0Ab..." /></label>
+      <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+        <div class="text-sm font-semibold">連携状態: <span id="gmailStatus">確認中…</span></div>
+        <label class="flex items-center gap-2 text-sm"><input id="gmailAutoScan" type="checkbox" class="h-4 w-4" /> 新着の休講・授業変更メールを自動で確認して DM で知らせる</label>
+        <button type="button" id="unlinkGmail" class="px-3 py-1.5 rounded bg-rose-100 text-rose-700 font-bold hover:bg-rose-200 text-sm">Gmail 連携を解除する</button>
+      </div>
     </section>
 
     <!-- 連携キー発行（機能別） -->
@@ -173,6 +213,13 @@
       </div>
       <div id="result" class="hidden rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-sm mt-3"></div>
     </section>
+
+    <!-- データ削除 -->
+    <section class="bg-white rounded-2xl shadow-md border border-rose-200 p-5 md:p-7 space-y-3">
+      <h2 class="text-lg font-bold text-rose-700">🗑️ データの削除</h2>
+      <p class="text-sm text-slate-600">時間割・試験時間割・補講/休講・通知設定・Gmail 連携など、このBotに保存されているあなたのデータをすべて削除します。元に戻せません。</p>
+      <button type="button" id="deleteAccount" class="px-4 py-2 rounded-lg bg-rose-600 text-white font-bold hover:bg-rose-700 text-sm">すべてのデータを削除する</button>
+    </section>
   </main>
 
   <!-- モーダルダイアログ -->
@@ -183,6 +230,7 @@
         <p id="classDialogSlot" class="text-sm text-slate-600 font-semibold"></p>
         <label class="block"><span class="text-sm">科目名</span><input id="dlgSubject" type="text" class="mt-1 w-full rounded border border-slate-300 px-3 py-2" /></label>
         <label class="block"><span class="text-sm">教室</span><input id="dlgRoom" type="text" class="mt-1 w-full rounded border border-slate-300 px-3 py-2" /></label>
+        <label class="flex items-center gap-2 text-sm"><input id="dlgHasExam" type="checkbox" class="h-4 w-4" checked /> 定期試験あり（試験時間割に自動追加）</label>
       </div>
       <div class="px-5 py-4 border-t bg-slate-50 flex justify-end gap-2">
         <button id="dlgDelete" type="button" class="px-3 py-2 rounded bg-rose-100 text-rose-700 font-bold hover:bg-rose-200">削除</button>
@@ -231,6 +279,7 @@
 
     const weekdays = ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"];
     const periods = ["1", "2", "3", "4", "5", "6"];
+    const DEFAULT_PERIOD_TIMES = { "1": "09:00", "2": "10:45", "3": "13:15", "4": "15:00", "5": "16:45", "6": "18:25" };
     let currentTerm = "前期";
     let timetableData = {};
 
@@ -241,10 +290,22 @@
       normalFirst: document.getElementById("normalFirst"),
       normalSecond: document.getElementById("normalSecond"),
       morningTime: document.getElementById("morningTime"),
+      examFirst: document.getElementById("examFirst"),
+      examSecond: document.getElementById("examSecond"),
+      periodTimeRows: document.getElementById("periodTimeRows"),
+      examName: document.getElementById("examName"),
+      examStart: document.getElementById("examStart"),
+      examEnd: document.getElementById("examEnd"),
+      addExam: document.getElementById("addExam"),
+      examList: document.getElementById("examList"),
+      gmailStatus: document.getElementById("gmailStatus"),
+      gmailAutoScan: document.getElementById("gmailAutoScan"),
+      unlinkGmail: document.getElementById("unlinkGmail"),
+      deleteAccount: document.getElementById("deleteAccount"),
+      dlgHasExam: document.getElementById("dlgHasExam"),
       saveTimetableBtn: document.getElementById("saveTimetableBtn"),
       saveSettingsBtn: document.getElementById("saveSettingsBtn"),
       saveSettingsBtnBottom: document.getElementById("saveSettingsBtnBottom"),
-      saveOverridesBtn: document.getElementById("saveOverridesBtn"),
       saveGmailBtn: document.getElementById("saveGmailBtn"),
       termStartLabel: document.getElementById("termStartLabel"),
       termEndLabel: document.getElementById("termEndLabel"),
@@ -384,7 +445,13 @@
         if (data && data.notify) {
           el.normalFirst.value = data.notify.normal_first ?? 15;
           el.normalSecond.value = data.notify.normal_second ?? 10;
+          el.examFirst.value = data.notify.exam_first ?? 30;
+          el.examSecond.value = data.notify.exam_second ?? 25;
           el.morningTime.value = data.notify.morning_time ?? "08:00";
+        }
+        if (data) {
+          renderPeriodTimes(data.period_times || {}, data.exam_period_times || {});
+          renderGmailStatus(data.gmail || {});
         }
         if (data && data.term_settings && data.term_settings[currentTerm]) {
           const s = data.term_settings[currentTerm];
@@ -395,6 +462,7 @@
         // ドラフトも最新状態に更新
         if (data) {
           if (data.notify) draft.notify = { ...draft.notify, ...data.notify };
+          draft.exam_period_overrides = { ...(data.exam_period_times || {}) };
           if (data.term_settings) {
             for (const t in data.term_settings) {
               const ts = data.term_settings[t];
@@ -414,6 +482,8 @@
       const notify = {
         normal_first: Number(el.normalFirst.value || 15),
         normal_second: Number(el.normalSecond.value || 10),
+        exam_first: Number(el.examFirst.value || 30),
+        exam_second: Number(el.examSecond.value || 25),
         morning_time: el.morningTime.value || "08:00"
       };
       const termData = {
@@ -458,7 +528,7 @@
           const c = (timetableData && timetableData[w] && timetableData[w][p]) ? timetableData[w][p] : null;
           html += `<td class='border p-1'>
             <button type='button' class='w-full min-h-[66px] text-left p-1.5 rounded transition duration-150 ${c ? "bg-cyan-50 hover:bg-cyan-100 border border-cyan-200" : "bg-white hover:bg-slate-50 border border-dashed border-slate-300"}' data-weekday='${w}' data-period='${p}'>
-              ${c ? `<div class='font-bold text-cyan-900 text-sm'>${escapeHtml(c.subject)}</div><div class='text-xs text-cyan-700 mt-0.5'>${escapeHtml(c.room)}</div>` : "<div class='text-xs text-slate-400 text-center font-semibold'>+ 追加</div>"}
+              ${c ? `<div class='font-bold text-cyan-900 text-sm'>${escapeHtml(c.subject)}</div><div class='text-xs text-cyan-700 mt-0.5'>${escapeHtml(c.room)}</div>${c.has_exam === false ? "<div class='text-[10px] text-slate-500 mt-0.5'>試験なし</div>" : ""}` : "<div class='text-xs text-slate-400 text-center font-semibold'>+ 追加</div>"}
             </button>
           </td>`;
         }
@@ -592,6 +662,7 @@
       el.classDialogSlot.textContent = `${weekday} ${period}限`;
       el.dlgSubject.value = cur?.subject || "";
       el.dlgRoom.value = cur?.room || "";
+      el.dlgHasExam.checked = cur ? cur.has_exam !== false : true;
       el.dlgDelete.style.display = cur ? "inline-block" : "none";
       el.classDialog.showModal();
     }
@@ -602,6 +673,7 @@
 
       const subject = el.dlgSubject.value.trim();
       const room = el.dlgRoom.value.trim();
+      const has_exam = el.dlgHasExam.checked;
 
       if (!subject || !room) {
         alert("科目名と教室を入力してください。");
@@ -613,17 +685,18 @@
           // 更新
           await apiRequest(`/api/classes/${encodeURIComponent(editing.weekday)}/${editing.period}?term=${encodeURIComponent(currentTerm)}`, {
             method: 'PUT',
-            body: JSON.stringify({ subject, room })
+            body: JSON.stringify({ subject, room, has_exam })
           });
         } else {
           // 追加
           await apiRequest(`/api/classes?term=${encodeURIComponent(currentTerm)}`, {
             method: 'POST',
-            body: JSON.stringify({ weekday: editing.weekday, period: editing.period, subject, room })
+            body: JSON.stringify({ weekday: editing.weekday, period: editing.period, subject, room, has_exam })
           });
         }
         el.classDialog.close();
         await loadTimetable();
+        await loadExams();
         // 連携キー用ドラフトも更新（任意だが整合性のため）
         draft.classes_by_term[currentTerm] = getClassesFromTimetable();
         persist();
@@ -642,26 +715,10 @@
 
         draft.classes_by_term[currentTerm] = classes;
         persist();
+        await loadExams();
         alert("通常時間割を保存しました。Bot側へも自動的に同期されました。");
       } catch (e) {
         alert("時間割の保存に失敗しました。");
-      }
-    }
-
-    async function saveOverrides() {
-      try {
-        await apiRequest(`/api/overrides/bulk?term=${encodeURIComponent(currentTerm)}`, {
-          method: 'POST',
-          body: JSON.stringify({
-            day_overrides: draft.day_overrides,
-            room_overrides: draft.room_overrides
-          })
-        });
-
-        persist();
-        alert("上書き設定を保存しました。Bot側へも自動的に同期されました。");
-      } catch (e) {
-        alert("上書き設定の保存に失敗しました。");
       }
     }
 
@@ -683,6 +740,7 @@
         draft.gmail_auth_state = "";
         el.gmailAuthCode.value = "";
         persist();
+        await loadSettings();
         alert("Gmail連携が完了しました。");
       } catch (e) {
         console.error("Gmail連携失敗:", e);
@@ -698,6 +756,7 @@
         });
         el.classDialog.close();
         await loadTimetable();
+        await loadExams();
       } catch (e) {
         console.error("削除失敗:", e);
       }
@@ -731,6 +790,7 @@
       el.termEndLabel.textContent = "前期 通知終了日";
       loadTimetable();
       loadSettings();
+      loadExams();
     });
 
     el.termToggle2nd.addEventListener("click", () => {
@@ -743,28 +803,219 @@
       el.termEndLabel.textContent = "後期 通知終了日";
       loadTimetable();
       loadSettings();
+      loadExams();
     });
+
+    // ===== 上書き設定（サーバーの内容を表示し、追加・削除はその場で保存） =====
+    function applyOverrides(data) {
+      draft.day_overrides = data?.day_overrides || [];
+      draft.room_overrides = data?.room_overrides || [];
+      persist();
+      renderOverrideLists();
+    }
+
+    async function loadOverrides() {
+      try {
+        applyOverrides(await apiRequest(`/api/overrides`));
+      } catch (e) {
+        console.error("上書き設定ロード失敗:", e);
+      }
+    }
 
     function renderOverrideLists() {
       el.dayOverrideList.innerHTML = draft.day_overrides.length
-        ? draft.day_overrides.map((x, i) => `<div class='py-1'>${escapeHtml(x.date)} → ${escapeHtml(x.weekday)} <button class='text-rose-700 underline' data-day-rm='${i}'>削除</button></div>`).join("")
+        ? draft.day_overrides.map(x => `<div class='py-1'>${escapeHtml(formatDate(x.date))} → ${escapeHtml(x.weekday)} の時間割 <button class='text-rose-700 underline' data-day-rm='${escapeHtml(x.date)}'>取り消す</button></div>`).join("")
         : "<div class='text-slate-400'>未設定</div>";
       el.roomOverrideList.innerHTML = draft.room_overrides.length
-        ? draft.room_overrides.map((x, i) => `<div class='py-1'>${x.date} ${x.period}限 → ${escapeHtml(x.room)} <button class='text-rose-700 underline' data-room-rm='${i}'>削除</button></div>`).join("")
+        ? draft.room_overrides.map(x => `<div class='py-1'>${escapeHtml(formatDate(x.date))} ${escapeHtml(x.period)}限 → ${escapeHtml(x.room)} <button class='text-rose-700 underline' data-room-rm-date='${escapeHtml(x.date)}' data-room-rm-period='${escapeHtml(x.period)}'>取り消す</button></div>`).join("")
         : "<div class='text-slate-400'>未設定</div>";
 
       el.dayOverrideList.querySelectorAll("button[data-day-rm]").forEach(btn => {
-        btn.addEventListener("click", () => {
-          draft.day_overrides.splice(Number(btn.dataset.dayRm), 1);
-          persist();
-          renderOverrideLists();
+        btn.addEventListener("click", async () => {
+          try {
+            const res = await apiRequest(`/api/overrides/day/${encodeURIComponent(btn.dataset.dayRm)}`, { method: 'DELETE' });
+            applyOverrides(res.data);
+          } catch (e) {
+            console.error("曜日上書き取り消し失敗:", e);
+          }
         });
       });
-      el.roomOverrideList.querySelectorAll("button[data-room-rm]").forEach(btn => {
-        btn.addEventListener("click", () => {
-          draft.room_overrides.splice(Number(btn.dataset.roomRm), 1);
-          persist();
-          renderOverrideLists();
+      el.roomOverrideList.querySelectorAll("button[data-room-rm-date]").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          try {
+            const res = await apiRequest(`/api/overrides/room/${encodeURIComponent(btn.dataset.roomRmDate)}/${encodeURIComponent(btn.dataset.roomRmPeriod)}`, { method: 'DELETE' });
+            applyOverrides(res.data);
+          } catch (e) {
+            console.error("教室上書き取り消し失敗:", e);
+          }
+        });
+      });
+    }
+
+    // ===== 時限の開始時刻 =====
+    function renderPeriodTimes(periodTimes, examTimes) {
+      el.periodTimeRows.innerHTML = periods.map(p => {
+        const normal = periodTimes[p] || DEFAULT_PERIOD_TIMES[p];
+        const custom = normal !== DEFAULT_PERIOD_TIMES[p];
+        return `<tr>
+          <td class='border p-2 text-center font-bold'>${p}限</td>
+          <td class='border p-2'><div class='flex items-center gap-2'><input type='time' value='${escapeHtml(normal)}' data-normal-period='${p}' class='rounded border border-slate-300 px-2 py-1' />${custom ? `<button type='button' class='text-xs text-rose-700 underline' data-normal-reset='${p}'>初期値（${DEFAULT_PERIOD_TIMES[p]}）に戻す</button>` : ""}</div></td>
+          <td class='border p-2'><input type='time' value='${escapeHtml(examTimes[p] || "")}' data-exam-period='${p}' class='rounded border border-slate-300 px-2 py-1' /></td>
+        </tr>`;
+      }).join("");
+
+      el.periodTimeRows.querySelectorAll("input[data-normal-period]").forEach(inp => {
+        inp.addEventListener("change", async () => {
+          if (!inp.value) return;
+          try {
+            await apiRequest(`/api/settings/period-time`, { method: 'POST', body: JSON.stringify({ period: inp.dataset.normalPeriod, time: inp.value }) });
+          } finally {
+            await loadSettings();
+          }
+        });
+      });
+      el.periodTimeRows.querySelectorAll("button[data-normal-reset]").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          try {
+            await apiRequest(`/api/settings/period-time/${btn.dataset.normalReset}`, { method: 'DELETE' });
+          } finally {
+            await loadSettings();
+          }
+        });
+      });
+      el.periodTimeRows.querySelectorAll("input[data-exam-period]").forEach(inp => {
+        inp.addEventListener("change", async () => {
+          const period = inp.dataset.examPeriod;
+          try {
+            if (inp.value) {
+              await apiRequest(`/api/settings/exam-period-time`, { method: 'POST', body: JSON.stringify({ period, time: inp.value }) });
+            } else if (examTimes[period]) {
+              await apiRequest(`/api/settings/exam-period-time/${period}`, { method: 'DELETE' });
+            }
+          } finally {
+            await loadSettings();
+          }
+        });
+      });
+    }
+
+    // ===== Gmail 連携の状態 =====
+    function renderGmailStatus(gmail) {
+      el.gmailStatus.textContent = gmail.linked ? "連携済み" : "未連携";
+      el.gmailStatus.className = gmail.linked ? "text-emerald-700" : "text-slate-500";
+      el.gmailAutoScan.checked = gmail.auto_scan !== false;
+      el.unlinkGmail.classList.toggle("hidden", !gmail.linked);
+    }
+
+    // ===== 試験時間割 =====
+    const examTermQuery = () => `term=${encodeURIComponent(currentTerm)}`;
+
+    async function loadExams() {
+      try {
+        const data = await apiRequest(`/api/exams?${examTermQuery()}`);
+        const items = data?.items || [];
+        renderExams(items);
+        // 連携キー用ドラフトも更新
+        draft.exam_schedules_by_term[currentTerm] = items.map(sc => ({
+          name: sc.name, start: sc.start, end: sc.end,
+          classes: sc.classes.map(c => ({ weekday: c.weekday, period: String(c.period), subject: c.subject, room: c.room, time: c.time || null })),
+        }));
+        persist();
+      } catch (e) {
+        console.error("試験時間割ロード失敗:", e);
+      }
+    }
+
+    async function createExam() {
+      const name = el.examName.value.trim();
+      const start_date = el.examStart.value;
+      const end_date = el.examEnd.value;
+      if (!name || !start_date || !end_date) {
+        alert("時間割名・開始日・終了日を入力してください。");
+        return;
+      }
+      try {
+        await apiRequest(`/api/exams?${examTermQuery()}`, { method: 'POST', body: JSON.stringify({ name, start_date, end_date }) });
+        el.examName.value = "";
+        await loadExams();
+      } catch (e) {
+        console.error("試験時間割作成失敗:", e);
+      }
+    }
+
+    function renderExams(items) {
+      if (!items.length) {
+        el.examList.innerHTML = `<div class='text-sm text-slate-400'>${escapeHtml(currentTerm)}の試験時間割はありません</div>`;
+        return;
+      }
+      const weekdayOptions = weekdays.map(w => `<option value='${w}'>${w}</option>`).join("");
+      const periodOptions = periods.map(p => `<option value='${p}'>${p}限</option>`).join("");
+      el.examList.innerHTML = items.map((sc, i) => `
+        <div class='rounded-xl border border-indigo-200 p-4 space-y-3' data-exam-index='${i}'>
+          <div class='grid grid-cols-1 md:grid-cols-5 gap-2 items-end'>
+            <label class='block'><span class='text-xs font-semibold'>時間割名</span><input data-f='name' type='text' value='${escapeHtml(sc.name)}' class='mt-1 w-full rounded border border-slate-300 px-2 py-1.5' /></label>
+            <label class='block'><span class='text-xs font-semibold'>開始日</span><input data-f='start' type='date' value='${escapeHtml(sc.start || "")}' class='mt-1 w-full rounded border border-slate-300 px-2 py-1.5' /></label>
+            <label class='block'><span class='text-xs font-semibold'>終了日</span><input data-f='end' type='date' value='${escapeHtml(sc.end || "")}' class='mt-1 w-full rounded border border-slate-300 px-2 py-1.5' /></label>
+            <button type='button' data-act='update' class='px-3 py-2 rounded bg-cyan-600 text-white font-bold hover:bg-cyan-700 text-sm'>名前・期間を変更</button>
+            <button type='button' data-act='delete' class='px-3 py-2 rounded bg-rose-100 text-rose-700 font-bold hover:bg-rose-200 text-sm'>時間割を削除</button>
+          </div>
+          <div class='text-sm'>
+            ${sc.classes.length ? sc.classes.map(c => `<div class='py-1'>${escapeHtml(c.weekday)} ${escapeHtml(c.period)}限 ${escapeHtml(c.subject || "")} (${escapeHtml(c.room || "未設定")})${c.time ? ` ${escapeHtml(c.time)}開始` : ""}${c.from_class ? " <span class='text-xs text-slate-500'>時間割から自動追加</span>" : ""} <button type='button' class='text-rose-700 underline' data-act='remove-class' data-weekday='${escapeHtml(c.weekday)}' data-period='${escapeHtml(c.period)}'>削除</button></div>`).join("") : "<div class='text-slate-400'>授業が登録されていません</div>"}
+          </div>
+          <div class='grid grid-cols-2 md:grid-cols-6 gap-2 items-end'>
+            <label class='block'><span class='text-xs font-semibold'>曜日</span><select data-f='weekday' class='mt-1 w-full rounded border border-slate-300 px-2 py-1.5'>${weekdayOptions}</select></label>
+            <label class='block'><span class='text-xs font-semibold'>時限</span><select data-f='period' class='mt-1 w-full rounded border border-slate-300 px-2 py-1.5'>${periodOptions}</select></label>
+            <label class='block'><span class='text-xs font-semibold'>科目名</span><input data-f='subject' type='text' class='mt-1 w-full rounded border border-slate-300 px-2 py-1.5' /></label>
+            <label class='block'><span class='text-xs font-semibold'>教室</span><input data-f='room' type='text' class='mt-1 w-full rounded border border-slate-300 px-2 py-1.5' /></label>
+            <label class='block'><span class='text-xs font-semibold'>開始時刻（任意）</span><input data-f='time' type='time' class='mt-1 w-full rounded border border-slate-300 px-2 py-1.5' /></label>
+            <button type='button' data-act='add-class' class='px-3 py-2 rounded bg-indigo-600 text-white font-bold hover:bg-indigo-700 text-sm'>試験を追加</button>
+          </div>
+        </div>`).join("");
+
+      el.examList.querySelectorAll("[data-exam-index]").forEach(box => {
+        const sc = items[Number(box.dataset.examIndex)];
+        const base = `/api/exams/${encodeURIComponent(sc.name)}`;
+        const field = f => box.querySelector(`[data-f='${f}']`).value.trim();
+        box.querySelector("[data-act='update']").addEventListener("click", async () => {
+          try {
+            await apiRequest(`${base}?${examTermQuery()}`, { method: 'PUT', body: JSON.stringify({ name: field("name"), start_date: field("start"), end_date: field("end") }) });
+            await loadExams();
+          } catch (e) {
+            console.error("試験時間割変更失敗:", e);
+          }
+        });
+        box.querySelector("[data-act='delete']").addEventListener("click", async () => {
+          if (!confirm(`試験時間割「${sc.name}」を削除しますか？`)) return;
+          try {
+            await apiRequest(`${base}?${examTermQuery()}`, { method: 'DELETE' });
+            await loadExams();
+          } catch (e) {
+            console.error("試験時間割削除失敗:", e);
+          }
+        });
+        box.querySelector("[data-act='add-class']").addEventListener("click", async () => {
+          const subject = field("subject");
+          const room = field("room");
+          if (!subject || !room) {
+            alert("科目名と教室を入力してください。");
+            return;
+          }
+          try {
+            await apiRequest(`${base}/classes?${examTermQuery()}`, { method: 'POST', body: JSON.stringify({ weekday: field("weekday"), period: field("period"), subject, room, time: field("time") || null }) });
+            await loadExams();
+          } catch (e) {
+            console.error("試験追加失敗:", e);
+          }
+        });
+        box.querySelectorAll("[data-act='remove-class']").forEach(btn => {
+          btn.addEventListener("click", async () => {
+            try {
+              await apiRequest(`${base}/classes/${encodeURIComponent(btn.dataset.weekday)}/${encodeURIComponent(btn.dataset.period)}?${examTermQuery()}`, { method: 'DELETE' });
+              await loadExams();
+            } catch (e) {
+              console.error("試験削除失敗:", e);
+            }
+          });
         });
       });
     }
@@ -789,7 +1040,8 @@
                 weekday: w,
                 period: String(p),
                 subject: c.subject,
-                room: c.room
+                room: c.room,
+                has_exam: c.has_exam !== false
               });
             }
           }
@@ -889,23 +1141,67 @@
 
     el.gmailAuthCode.value = draft.gmail_auth_code || "";
 
-    el.addDayOverride.addEventListener("click", () => {
+    el.addDayOverride.addEventListener("click", async () => {
       const date = el.ovDayDate.value;
       const weekday = el.ovDayWeekday.value;
-      if (!date || !weekday) return;
-      draft.day_overrides.push({ date, weekday });
-      persist();
-      renderOverrideLists();
+      if (!date || !weekday) {
+        alert("日付と曜日を選択してください。");
+        return;
+      }
+      try {
+        const res = await apiRequest(`/api/overrides/day`, { method: 'POST', body: JSON.stringify({ date, weekday }) });
+        applyOverrides(res.data);
+      } catch (e) {
+        console.error("曜日上書き追加失敗:", e);
+      }
     });
 
-    el.addRoomOverride.addEventListener("click", () => {
+    el.addRoomOverride.addEventListener("click", async () => {
       const date = el.ovRoomDate.value;
       const period = el.ovRoomPeriod.value;
       const room = el.ovRoomValue.value.trim();
-      if (!date || !period || !room) return;
-      draft.room_overrides.push({ date, period, room });
-      persist();
-      renderOverrideLists();
+      if (!date || !period || !room) {
+        alert("日付・時限・教室を入力してください。");
+        return;
+      }
+      try {
+        const res = await apiRequest(`/api/overrides/room`, { method: 'POST', body: JSON.stringify({ date, period, room }) });
+        el.ovRoomValue.value = "";
+        applyOverrides(res.data);
+      } catch (e) {
+        console.error("教室上書き追加失敗:", e);
+      }
+    });
+
+    el.addExam.addEventListener("click", createExam);
+    el.gmailAutoScan.addEventListener("change", async () => {
+      try {
+        await apiRequest(`/api/settings/gmail/auto-scan`, { method: 'POST', body: JSON.stringify({ enabled: el.gmailAutoScan.checked }) });
+      } catch (e) {
+        el.gmailAutoScan.checked = !el.gmailAutoScan.checked;
+      }
+    });
+    el.unlinkGmail.addEventListener("click", async () => {
+      if (!confirm("Gmail 連携を解除しますか？保存している認証情報を削除します。")) return;
+      try {
+        await apiRequest(`/api/settings/gmail`, { method: 'DELETE' });
+        await loadSettings();
+        alert("Gmail 連携を解除しました。");
+      } catch (e) {
+        console.error("Gmail連携解除失敗:", e);
+      }
+    });
+    el.deleteAccount.addEventListener("click", async () => {
+      if (!confirm("時間割・設定・Gmail 連携など、保存されているデータをすべて削除します。元に戻せません。よろしいですか？")) return;
+      if (!confirm("本当に削除しますか？")) return;
+      try {
+        await apiRequest(`/api/settings/account`, { method: 'DELETE' });
+        localStorage.removeItem(STORAGE_KEY);
+        alert("データをすべて削除しました。");
+        window.location.reload();
+      } catch (e) {
+        console.error("データ削除失敗:", e);
+      }
     });
 
     el.openGmailAuth.addEventListener("click", async () => {
@@ -919,7 +1215,6 @@
     });
 
     el.saveTimetableBtn.addEventListener("click", saveTimetable);
-    el.saveOverridesBtn.addEventListener("click", saveOverrides);
     el.saveGmailBtn.addEventListener("click", saveGmailSettings);
 
     el.saveSettingsBtn.addEventListener("click", saveSettings);
@@ -940,10 +1235,12 @@
     el.issueKeyGmail.addEventListener("click", async () => runIssue("gmail"));
     el.issueKeyExam.addEventListener("click", async () => runIssue("exam"));
 
-    [el.normalFirst, el.normalSecond, el.morningTime, el.gmailAuthCode].forEach(inp => {
+    [el.normalFirst, el.normalSecond, el.examFirst, el.examSecond, el.morningTime, el.gmailAuthCode].forEach(inp => {
       inp.addEventListener("change", () => {
         draft.notify.normal_first = Number(el.normalFirst.value || 15);
         draft.notify.normal_second = Number(el.normalSecond.value || 10);
+        draft.notify.exam_first = Number(el.examFirst.value || 30);
+        draft.notify.exam_second = Number(el.examSecond.value || 25);
         draft.notify.morning_time = el.morningTime.value || "08:00";
         draft.gmail_auth_code = el.gmailAuthCode.value || "";
         persist();
@@ -968,7 +1265,8 @@
     // 初期化
     loadTimetable();
     loadSettings();
-    renderOverrideLists();
+    loadOverrides();
+    loadExams();
     loadMakeupAndCancel();
   </script>
 </body>

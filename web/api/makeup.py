@@ -20,6 +20,14 @@ from utils import (
     TERM_SECOND,
     WEEKDAYS,
     WEEKDAY_MAP,
+    list_day_overrides,
+    list_room_overrides,
+    set_day_override,
+    remove_day_override,
+    set_room_override,
+    remove_room_override,
+    replace_day_overrides,
+    replace_room_overrides,
 )
 from web.auth import TokenData, get_current_user
 from web.schemas import (
@@ -28,6 +36,8 @@ from web.schemas import (
     ListResponse,
     SuccessResponse,
     OverridesBulkSaveRequest,
+    DayOverrideCreate,
+    RoomOverrideCreate,
 )
 
 logger = logging.getLogger(__name__)
@@ -333,58 +343,112 @@ async def delete_cancel(
         )
 
 
+# ============ 曜日変更・教室変更（Overrides）エンドポイント ============
+
+
+def _overrides_payload(user_data: dict) -> dict:
+    return {
+        "day_overrides": list_day_overrides(user_data),
+        "room_overrides": list_room_overrides(user_data),
+    }
+
+
+@router.get("/api/overrides")
+async def get_overrides(current_user: TokenData = Depends(get_current_user)):
+    """曜日変更・教室変更の一覧を取得（Discord で登録したものを含む）"""
+    return _overrides_payload(load_user_data(current_user.user_id))
+
+
+@router.post("/api/overrides/day", response_model=SuccessResponse)
+async def add_day_override(
+    body: DayOverrideCreate, current_user: TokenData = Depends(get_current_user)
+):
+    """指定日を別の曜日の時間割にする（同じ日の設定は置き換える）"""
+    user_id = current_user.user_id
+    user_data = load_user_data(user_id)
+    try:
+        set_day_override(user_data, body.date, body.weekday)
+    except ValueError as e:
+        detail = str(e) if "曜日" in str(e) else "日付は「YYYY-MM-DD」の形式で入力してください"
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+    save_user_data(user_id, user_data)
+    await notify_user_change(user_id, f"曜日変更を登録しました: {body.date} → {body.weekday} の時間割")
+    return SuccessResponse(message="曜日変更を登録しました", data=_overrides_payload(user_data))
+
+
+@router.delete("/api/overrides/day/{date}", response_model=SuccessResponse)
+async def delete_day_override(
+    date: str, current_user: TokenData = Depends(get_current_user)
+):
+    """曜日変更を取り消す"""
+    user_id = current_user.user_id
+    user_data = load_user_data(user_id)
+    if not remove_day_override(user_data, date):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="該当する曜日変更が見つかりません"
+        )
+    save_user_data(user_id, user_data)
+    await notify_user_change(user_id, f"曜日変更を取り消しました: {date}")
+    return SuccessResponse(message="曜日変更を取り消しました", data=_overrides_payload(user_data))
+
+
+@router.post("/api/overrides/room", response_model=SuccessResponse)
+async def add_room_override(
+    body: RoomOverrideCreate, current_user: TokenData = Depends(get_current_user)
+):
+    """指定日・時限の教室を変更する（同じ日・時限の設定は置き換える）"""
+    user_id = current_user.user_id
+    user_data = load_user_data(user_id)
+    try:
+        set_room_override(user_data, body.date, body.period, body.room)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    save_user_data(user_id, user_data)
+    await notify_user_change(
+        user_id, f"教室変更を登録しました: {body.date} {body.period}限 → {body.room.strip()}"
+    )
+    return SuccessResponse(message="教室変更を登録しました", data=_overrides_payload(user_data))
+
+
+@router.delete("/api/overrides/room/{date}/{period}", response_model=SuccessResponse)
+async def delete_room_override(
+    date: str, period: str, current_user: TokenData = Depends(get_current_user)
+):
+    """教室変更を取り消す"""
+    user_id = current_user.user_id
+    user_data = load_user_data(user_id)
+    if not remove_room_override(user_data, date, period):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="該当する教室変更が見つかりません"
+        )
+    save_user_data(user_id, user_data)
+    await notify_user_change(user_id, f"教室変更を取り消しました: {date} {period}限")
+    return SuccessResponse(message="教室変更を取り消しました", data=_overrides_payload(user_data))
+
 
 @router.post("/api/overrides/bulk", response_model=SuccessResponse)
 async def bulk_save_overrides(
     bulk_data: OverridesBulkSaveRequest,
-    term: str = None,
     current_user: TokenData = Depends(get_current_user),
 ):
     """
-    曜日上書き設定・教室上書き設定を一括保存
+    曜日変更・教室変更を送られた内容で置き換える（送られなかった既存の設定は取り消す）
     """
     try:
         user_id = current_user.user_id
         user_data = load_user_data(user_id)
-        selected_term = normalize_term_key(term)
-
-        # データを更新（Web側のドラフトに同期する）
-        # day_overrides / room_overrides は各学期に依存しない場合でも、ユーザーデータベースのキーに保存
-        user_data["day_overrides"] = bulk_data.day_overrides
-        user_data["room_overrides"] = bulk_data.room_overrides
-
-        # Web設定された day_overrides を各クラスの overrides に同期する
-        if bulk_data.day_overrides:
-            for term_key in [TERM_FIRST, TERM_SECOND]:
-                classes = user_data.get("classes_by_term", {}).get(term_key, [])
-                for cls in classes:
-                    overrides_dict = cls.setdefault("overrides", {})
-                    for item in bulk_data.day_overrides:
-                        d = item.get("date") if isinstance(item, dict) else getattr(item, "date", None)
-                        w = item.get("weekday") if isinstance(item, dict) else getattr(item, "weekday", None)
-                        if d and w and w in WEEKDAY_MAP:
-                            overrides_dict[d] = WEEKDAY_MAP[w]
-
-        # 同期後のデータを保存する
+        replace_day_overrides(user_data, bulk_data.day_overrides)
+        replace_room_overrides(user_data, bulk_data.room_overrides)
         save_user_data(user_id, user_data)
 
-        # DM通知を送信
-        msg = (
-            f"時間割の上書き設定を保存・更新しました。\n\n"
-            f"・学期: {selected_term}\n"
-            f"・曜日上書き: {len(bulk_data.day_overrides)}件\n"
-            f"・教室上書き: {len(bulk_data.room_overrides)}件\n\n"
-            "※Webダッシュボード上から上書き設定が正常に同期されました。"
+        result = _overrides_payload(user_data)
+        await notify_user_change(
+            user_id,
+            "時間割の上書き設定を保存・更新しました。\n\n"
+            f"・曜日上書き: {len(result['day_overrides'])}件\n"
+            f"・教室上書き: {len(result['room_overrides'])}件",
         )
-        await notify_user_change(user_id, msg)
-
-        return SuccessResponse(
-            message="上書き設定を保存しました",
-            data={
-                "day_overrides_count": len(bulk_data.day_overrides),
-                "room_overrides_count": len(bulk_data.room_overrides),
-            }
-        )
+        return SuccessResponse(message="上書き設定を保存しました", data=result)
     except Exception as e:
         logger.exception(f"上書き設定一括保存エラー: {e}")
         raise HTTPException(

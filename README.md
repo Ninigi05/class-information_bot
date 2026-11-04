@@ -25,17 +25,18 @@ Discord のスラッシュコマンドと Web ダッシュボードの両方か�
 
 | 機能 | 内容 |
 | --- | --- |
-| 時間割の登録 | 曜日・時限・科目名・教室を前期／後期ごとに登録 |
+| 時間割の登録 | 曜日・時限・科目名・教室・定期試験の有無を前期／後期ごとに登録 |
 | 授業前通知 | 授業開始の N 分前に DM で通知（1 授業につき 2 回） |
 | 朝の一覧通知 | 毎朝指定した時刻に、その日の授業一覧を DM で送信 |
 | 曜日変更（振替） | 指定日だけ別の曜日の時間割で動かす |
 | 教室変更 | 指定日・指定時限の教室だけ変更する |
 | 補講 | 指定日・指定時限に、登録済みの授業を追加する |
 | 休講 | 指定日の特定の授業を通知せず、授業回数にも数えない |
-| 試験期間 | 期間中は通常の時間割の代わりに試験用時間割で通知 |
+| 試験期間 | 期間中は通常の時間割の代わりに試験用時間割で通知。定期試験ありの授業は試験時間割に自動追加 |
 | 授業回数 | 学期の授業回数を設定すると、回数に達した授業は自動で削除され通知が止まる |
 | 時限の時刻変更 | 各時限の開始時刻を自分の大学に合わせて変更 |
-| Gmail 連携（任意） | Gmail から休講・授業変更のメールを探して DM に表示 |
+| Gmail 連携（任意） | Gmail を定期的に確認し、休講・授業変更のメールが届いたら DM で通知。ボタンで時間割に反映 |
+| データ削除 | 保存されている自分のデータをいつでもすべて削除 |
 | Web ダッシュボード | Discord でログインし、ブラウザから時間割や補講・休講を編集 |
 
 ---
@@ -69,9 +70,11 @@ Discord のスラッシュコマンドと Web ダッシュボードの両方か�
 
 ```
 /class add weekday:月曜日 period:1 subject:線形代数 room:A101
+/class add weekday:火曜日 period:2 subject:体育 room:体育館 exam:False
 ```
 
 - 登録先は「現在の学期」です（`/class status` で確認できます）。
+- `exam` は定期試験の有無です（省略時は「あり」）。ありの授業は、その学期の試験時間割に同じ曜日・時限で自動追加されます（[試験期間の時間割](#8-試験期間の時間割を登録する)）。
 - 同じ曜日・時限に登録すると上書きされます。
 - 削除は `/class remove weekday:月曜日 period:1`。
 - 確認は `/class list`（画像の時間割表を DM で受信）、`/class table`（テキスト表）、`/class today`（今日の授業）。
@@ -80,9 +83,9 @@ Discord のスラッシュコマンドと Web ダッシュボードの両方か�
 
 1. Web ダッシュボードを開き、「Discord でログイン」します。
 2. 上部の「前期／後期」を選びます。
-3. 時間割表のセルをクリックし、科目名と教室を入力して保存します。
+3. 時間割表のセルをクリックし、科目名・教室・定期試験の有無を入力して保存します。
 
-ログイン後のダッシュボードで変更した内容は、その場で Bot に反映されます。
+ログイン後のダッシュボードは、Discord で登録した内容も含めてサーバーのデータを表示し、変更はその場で Bot に反映されます。
 
 ### 4. 通知のタイミングを決める
 
@@ -92,7 +95,7 @@ Discord のスラッシュコマンドと Web ダッシュボードの両方か�
 
 - `normal` は通常の授業、`exam` は試験期間の授業の設定です。
 - 上の例では授業開始の 15 分前と 10 分前に DM が届きます。
-- 朝の一覧通知の時刻は Web ダッシュボードの「通知・学期設定」で変更できます（初期値 08:00）。
+- 朝の一覧通知の時刻は `/setting morning_time time:07:30` か、Web ダッシュボードの「通知・学期設定」で変更できます（初期値 08:00）。
 - 自分の大学の時限の時刻に合わせるには `/setting period_time period:1 time:08:50` を使います。
 
 ### 5. 授業回数を設定する（任意）
@@ -108,10 +111,15 @@ Discord のスラッシュコマンドと Web ダッシュボードの両方か�
 
 | やりたいこと | Discord | Web ダッシュボード |
 | --- | --- | --- |
-| 祝日振替などで、ある日を別の曜日の時間割にする | `/class setday date:2026-11-04 new_weekday:月曜日` | 「時間割の上書き設定」→ 曜日上書き追加 →「上書き設定を保存する」 |
-| ある日の特定の時限の教室を変える | `/class setroom date:2026-11-04 period:2 new_room:B201` | 「時間割の上書き設定」→ 教室上書き追加 →「上書き設定を保存する」 |
+| 祝日振替などで、ある日を別の曜日の時間割にする | `/class setday date:2026-11-04 new_weekday:月曜日` | 「時間割の上書き設定」→ 曜日上書き追加 |
+| 曜日変更を取り消す | `/class unsetday date:2026-11-04`（候補から選択） | 一覧の「取り消す」 |
+| ある日の特定の時限の教室を変える | `/class setroom date:2026-11-04 period:2 new_room:B201` | 「時間割の上書き設定」→ 教室上書き追加 |
+| 教室変更を取り消す | `/class unsetroom target:（候補から選択）` | 一覧の「取り消す」 |
 
-教室変更は授業前通知・朝の一覧・`/class today` に反映されます。同じ日・時限に両方ある場合は `/class setroom` の設定が優先です。
+- Web での追加・取り消しはその場で保存されます。Discord で登録した変更も Web の一覧に表示されます。
+- 曜日変更は日付ごとに 1 つ、教室変更は日付・時限ごとに 1 つです。同じ日（・時限）にもう一度登録すると置き換わります。
+- 曜日変更は前期・後期の全授業に適用され、後から登録した授業にも効きます。
+- 教室変更は授業前通知・朝の一覧・`/class today` に反映されます（試験期間中は試験の授業にも適用）。
 
 ### 7. 補講・休講を登録する
 
@@ -156,22 +164,33 @@ Discord のスラッシュコマンドと Web ダッシュボードの両方か�
 ```
 
 - 期間中は通常の時間割の代わりに試験時間割で通知します（通知タイミングは `exam` の設定）。
-- `time` を指定すると、その試験だけ開始時刻を変えられます。`/exam set_time` は試験期間中の時限ごとの開始時刻です。
+- **定期試験ありの授業は自動で追加されます。** 試験時間割を作成したとき、およびその後に授業を登録・変更・削除したときに、その学期のすべての試験時間割へ同じ曜日・時限で反映します。
+  - 試験の曜日・時限や教室が授業と違う場合は、`/exam addclass` で同じ曜日・時限に登録すると手動の内容が優先されます。違う曜日・時限で行う場合は、自動追加分を `/exam removeclass` で消してから追加してください。
+  - 自動追加分を `/exam removeclass` で消すと、その試験時間割には再追加しません。
+- `time` を指定すると、その試験だけ開始時刻を変えられます。`/exam set_time` は試験期間中の時限ごとの開始時刻で、`/exam reset_time` で元に戻せます。
+- `/exam edit` で名前・期間を変更できます。
 - `/exam list`・`/exam show`・`/exam removeclass`・`/exam delete` で確認・編集できます。
+- Web ダッシュボードの「試験時間割」でも同じ操作ができます。
 
 ### 9. Gmail 連携（任意）
 
-大学から届く休講・授業変更メールを Gmail から探して DM に表示します。読み取り専用で、メールの変更・送信はしません。
+大学から届く休講・授業変更メールを Gmail から探して DM で知らせます。読み取り専用で、メールの変更・送信はしません。
 
 1. `/mail auth` を実行すると、Google の認証 URL が DM で届きます。
 2. URL を開いて許可し、表示された認証コードをコピーします。
 3. `/mail setcode code:（コード）` で連携が完了します。
-4. `/mail fetch` で、直近 14 日間の件名に「休講・授業変更・曜日変更・振替」を含むメールを調べ、結果を DM で受け取ります。
+4. 以降は約 30 分ごと（`MAIL_SCAN_INTERVAL_MINUTES`）に Gmail を自動で確認し、新しいメールが見つかると DM で知らせます。すぐに確認したいときは `/mail fetch` を使います。
+
+調べるのは、直近 14 日間の件名に「休講・授業変更・曜日変更・振替」を含むメールです。
 
 - 認証 URL は 15 分間有効です。`/mail auth` を実行した本人しか、そのコードで連携できません。
 - Web ダッシュボードからも「認証URLを取得」→ コードを貼り付け →「Gmail認証を保存する」で連携できます。
 
-`/mail fetch` は結果を表示するだけで、時間割には自動で反映しません。授業変更日（件名が「授業変更・曜日変更・振替」で、本文に「〇曜日の授業を行う／実施」とあるもの）が見つかった場合は確認ボタンが表示され、「時間割に反映する」を押したときだけ反映されます。休講は必要に応じて `/cancel add` で登録してください。
+- 自動確認では、一度知らせたメールは再度知らせません。また、今日より前の日付の休講・授業変更は知らせません。
+- 時間割には自動で反映しません。授業変更日（件名が「授業変更・曜日変更・振替」で、本文に「〇曜日の授業を行う／実施」とあるもの）や、時間割の授業と一致した休講が見つかった場合は確認ボタンが表示され、「授業変更を反映する」「休講を登録する」を押したときだけ反映されます（自動確認のボタンは 24 時間、または Bot の再起動まで有効）。
+- Gmail 連携の有効期限が切れて確認できなくなった場合は、1 回だけ DM で知らせます。
+- `/mail autoscan enabled:False` で自動確認を止められます（Web ダッシュボードでも切り替え可）。
+- `/mail unlink` で連携を解除すると、Google 側のトークンを取り消し、保存していた認証情報を削除します。
 
 ### 10. ログインせずに Web で入力して取り込む（連携キー）
 
@@ -184,6 +203,10 @@ Discord のスラッシュコマンドと Web ダッシュボードの両方か�
 - キーは 10 文字・**1 回限り**・**24 時間有効**です。
 - キーで取り込むと、その機能の既存データは Web の内容で置き換わります。
 - Gmail 認証を含める場合は、同じページで「認証URLを取得」してから 15 分以内にキーを発行し、取り込んでください。
+
+### 11. データを削除する
+
+`/setting delete_data`（確認ボタンあり）または Web ダッシュボードの「データの削除」で、時間割・試験時間割・補講/休講・通知設定・Gmail 連携など、保存されている自分のデータをすべて削除できます。元に戻せません。
 
 ### よくあるつまずき
 
@@ -204,13 +227,15 @@ Discord のスラッシュコマンドと Web ダッシュボードの両方か�
 
 | コマンド | 引数 | 内容 |
 | --- | --- | --- |
-| `/class add` | `weekday` `period` `subject` `room` | 現在の学期に授業を登録（同じ曜日・時限は上書き） |
+| `/class add` | `weekday` `period` `subject` `room` `[exam]` | 現在の学期に授業を登録（同じ曜日・時限は上書き。`exam` は定期試験の有無、既定はあり） |
 | `/class remove` | `weekday` `period` | 授業を削除 |
 | `/class list` | `[term]` | 時間割表の画像を DM で送信 |
 | `/class table` | `[term]` | テキストの時間割表を表示 |
 | `/class today` | — | 今日の授業一覧（補講・休講・曜日変更・教室変更を反映） |
 | `/class setday` | `date` `new_weekday` | 指定日を別の曜日の時間割にする（前期・後期の全授業に適用） |
+| `/class unsetday` | `date` | 曜日変更を取り消す |
 | `/class setroom` | `date` `period` `new_room` | 指定日・時限の教室を変更 |
+| `/class unsetroom` | `target` | 教室変更を取り消す |
 | `/class status` | — | システムが判定している現在の学期を表示 |
 
 ### `/makeup` 補講
@@ -233,13 +258,15 @@ Discord のスラッシュコマンドと Web ダッシュボードの両方か�
 
 | コマンド | 引数 | 内容 |
 | --- | --- | --- |
-| `/exam create` | `name` `start` `end` | 試験時間割を作成 |
+| `/exam create` | `name` `start` `end` | 試験時間割を作成（定期試験ありの授業を自動追加） |
+| `/exam edit` | `name` `[new_name]` `[start]` `[end]` | 試験時間割の名前・期間を変更 |
 | `/exam addclass` | `name` `weekday` `period` `subject` `room` `[time]` | 試験時間割に授業を追加 |
 | `/exam removeclass` | `name` `weekday` `period` | 試験時間割から授業を削除 |
 | `/exam list` | — | 試験時間割の一覧 |
 | `/exam show` | `name` | 試験時間割の中身 |
 | `/exam delete` | `name` | 試験時間割を削除 |
 | `/exam set_time` | `period` `time` | 試験期間中の時限の開始時刻 |
+| `/exam reset_time` | `period`（`all` で全時限） | 試験期間中の時限の開始時刻を元に戻す |
 
 ### `/notify` 通知
 
@@ -257,7 +284,9 @@ Discord のスラッシュコマンドと Web ダッシュボードの両方か�
 | `/setting reset_period` | `period`（`all` で全時限） | 時限の開始時刻を初期値に戻す |
 | `/setting term_range` | `term` `start_date` `end_date` | 学期の通知期間 |
 | `/setting class_count` | `term` `count` | 学期の授業回数（設定するとカウントは 0 に戻る） |
+| `/setting morning_time` | `time` | 朝の一覧通知の時刻 |
 | `/setting show` | — | 現在の設定を DM で表示 |
+| `/setting delete_data` | — | 保存されている自分のデータをすべて削除（確認あり） |
 
 ### `/mail` Gmail 連携
 
@@ -265,7 +294,9 @@ Discord のスラッシュコマンドと Web ダッシュボードの両方か�
 | --- | --- | --- |
 | `/mail auth` | — | Gmail 認証 URL を DM で送信 |
 | `/mail setcode` | `code` | 認証コードを登録して連携を完了 |
-| `/mail fetch` | — | 休講・授業変更メールを探して DM に表示（授業変更日は確認ボタンで反映） |
+| `/mail fetch` | — | 休講・授業変更メールを探して DM に表示（確認ボタンで時間割に反映） |
+| `/mail autoscan` | `enabled` | 新着メールの自動確認を切り替え（連携すると既定で有効） |
+| `/mail unlink` | — | Gmail 連携を解除し、認証情報を削除 |
 
 ### その他
 
@@ -341,6 +372,8 @@ Discord のスラッシュコマンドと Web ダッシュボードの両方か�
 ### 試験期間
 
 - 試験時間割は名前・開始日・終了日・授業のリストを持ち、学期ごとに保存します。
+- 定期試験ありの授業（`has_exam` が `false` でない授業）は、同じ曜日・時限で試験時間割に自動追加します。自動追加した項目は `from_class: true` を持ち、手動で追加した項目が同じ曜日・時限にあれば手動分を優先します。自動追加分を削除した曜日・時限は試験時間割の `excluded` に記録し、再追加しません。
+- 授業回数に達して時間割から削除された授業の試験は、試験時間割に残します。
 - 今日がいずれかの試験時間割の期間内なら試験モードになり、その時間割の授業で通知します。DM には「【試験期間】」と付きます。
 
 ### Web 連携キー
@@ -364,8 +397,8 @@ Discord のスラッシュコマンドと Web ダッシュボードの両方か�
 
 | キー | 内容 |
 | --- | --- |
-| `classes_by_term` | 学期ごとの時間割。`day`（0=月〜6=日）・`period`・`subject`・`room`、日付ごとの曜日変更 `overrides`・教室変更 `room_overrides` |
-| `exam_schedules_by_term` | 学期ごとの試験時間割 |
+| `classes_by_term` | 学期ごとの時間割。`day`（0=月〜6=日）・`period`・`subject`・`room`・`has_exam`（以前の形式の曜日変更 `overrides`・教室変更 `room_overrides` も読み取る） |
+| `exam_schedules_by_term` | 学期ごとの試験時間割（`classes` の自動追加分は `from_class`、再追加しない曜日・時限は `excluded`） |
 | `makeup_classes` | 補講。`date`・`period`・`subject`・`room`・元の授業の `day` と `source_period`・`term` |
 | `cancelled_classes` | 休講。`date`・`period`・`subject`・`term` |
 | `notify_settings` | 通知タイミング（`normal`／`exam` それぞれ `first`・`second`） |
@@ -373,7 +406,8 @@ Discord のスラッシュコマンドと Web ダッシュボードの両方か�
 | `period_overrides` / `exam_period_overrides` | 時限の開始時刻（通常／試験） |
 | `term_ranges` | 学期の期間 |
 | `class_count_targets` / `class_attendance_count` | 授業回数の目標と現在のカウント |
-| `day_overrides` / `room_overrides` | Web で設定した曜日・教室上書きの一覧 |
+| `day_overrides` / `room_overrides` | 曜日変更（`date`・`weekday`）・教室変更（`date`・`period`・`room`）の一覧（Discord・Web 共通） |
+| `mail_auto_scan` / `mail_seen_ids` | Gmail 自動確認の有効／無効と、確認済みメールの ID |
 | `effective_term_cache` | 学期判定のキャッシュ |
 
 その他のファイル：
@@ -431,24 +465,32 @@ Discord OAuth2（スコープ `identify` のみ）でログインし、サーバ
 | GET | `/api/auth/url` | Discord ログイン URL（認証不要） |
 | POST | `/api/auth/login?code=` | 認可コードで JWT を発行（認証不要） |
 | GET | `/api/auth/me` | ログイン中の利用者 |
-| GET / POST | `/api/classes?term=` | 授業一覧／追加 |
+| GET / POST | `/api/classes?term=` | 授業一覧／追加（`has_exam` で定期試験の有無） |
 | PUT / DELETE | `/api/classes/{weekday}/{period}?term=` | 授業の更新／削除 |
 | POST | `/api/classes/bulk?term=` | 時間割の一括保存 |
 | GET | `/api/classes/table?term=` | 曜日×時限の表形式 |
-| GET / POST | `/api/exams` | 試験時間割の一覧／作成 |
-| GET / DELETE | `/api/exams/{name}` | 試験時間割の取得／削除 |
-| POST / DELETE | `/api/exams/{name}/classes` | 試験時間割の授業の追加／削除 |
+| GET / POST | `/api/exams?term=` | 試験時間割の一覧（授業を含む）／作成（定期試験ありの授業を自動追加） |
+| PUT / DELETE | `/api/exams/{name}?term=` | 試験時間割の名前・期間の変更／削除 |
+| POST | `/api/exams/{name}/classes?term=` | 試験時間割に授業を追加 |
+| DELETE | `/api/exams/{name}/classes/{weekday}/{period}?term=` | 試験時間割から授業を削除 |
 | GET / POST | `/api/makeup` | 補講の一覧／追加 |
 | DELETE | `/api/makeup/{date}/{period}?source_weekday=&source_period=` | 補講の削除（同じ枠に複数あるときは元の授業を指定） |
 | GET / POST | `/api/cancel` | 休講の一覧／追加 |
 | GET | `/api/cancel/candidates?date=` | 指定日の休講候補（その日の通常授業） |
 | DELETE | `/api/cancel/{date}/{period}` | 休講の取り消し |
-| POST | `/api/overrides/bulk` | 曜日・教室上書きの一括保存 |
-| GET / PUT | `/api/settings` | 設定の取得／通知設定の更新 |
-| POST | `/api/settings/period-time` | 時限の開始時刻 |
+| GET | `/api/overrides` | 曜日変更・教室変更の一覧 |
+| POST / DELETE | `/api/overrides/day`、`/api/overrides/day/{date}` | 曜日変更の追加／取り消し |
+| POST / DELETE | `/api/overrides/room`、`/api/overrides/room/{date}/{period}` | 教室変更の追加／取り消し |
+| POST | `/api/overrides/bulk` | 曜日・教室変更を送った内容で置き換え（送らなかった既存分は取り消し） |
+| GET / PUT | `/api/settings` | 設定の取得（通知・時限・学期・Gmail 状態）／通知設定の更新 |
+| POST / DELETE | `/api/settings/period-time`、`/api/settings/period-time/{period}` | 時限の開始時刻の設定／初期値に戻す |
+| POST / DELETE | `/api/settings/exam-period-time`、`/api/settings/exam-period-time/{period}` | 試験期間中の時限の開始時刻の設定／取り消し |
 | POST | `/api/settings/term` | 学期の期間と授業回数 |
 | GET | `/api/settings/gmail/auth-url` | ログイン中の利用者に紐付けた Gmail 認証 URL と `state` |
 | POST | `/api/settings/gmail` | Gmail 認証コード（と `state`）をトークンに交換して連携を完了 |
+| DELETE | `/api/settings/gmail` | Gmail 連携の解除 |
+| POST | `/api/settings/gmail/auto-scan` | Gmail 自動確認の切り替え（`{"enabled": true}`） |
+| DELETE | `/api/settings/account` | 保存している利用者のデータをすべて削除 |
 
 補講の追加（`POST /api/makeup`）の例：
 
@@ -506,6 +548,7 @@ Discord OAuth2（スコープ `identify` のみ）でログインし、サーバ
 | `CORS_ORIGIN_REGEX` | | 許可するオリジンの正規表現（初期値 `*.github.io`） |
 | `GMAIL_CREDENTIALS` | | Google OAuth クライアント JSON のパス（未指定時は `client_secret*.json` などを自動検出） |
 | `GMAIL_REDIRECT_URI` | | Gmail 認証のリダイレクト先（初期値 `https://ninigi05.github.io/oauth-redirect/`） |
+| `MAIL_SCAN_INTERVAL_MINUTES` | | Gmail 自動確認の間隔（分、初期値 30、最小 5） |
 | `DEBUG` | | `true` で `/docs`・`/redoc`・`/openapi.json` を公開（本番では設定しない） |
 | `DISCORD_FORCE_IPV4` / `AIOHTTP_DNS_TTL` | | Discord 接続の調整（初期値 `1` / `60`） |
 | `TUNNEL_TOKEN` | Docker 時 | Cloudflare Tunnel のトークン |
@@ -541,17 +584,20 @@ Bot と Web サーバー（ポート 8000）のコンテナと、Cloudflare Tunn
 ## ファイル構成
 
 ```
-main.py                  Bot 本体（起動・/help・/mail・/web・新規メンバー対応）。Web サーバーも起動
-utils.py                 データ読み書き、学期判定、補講・休講の共通処理、定数
+main.py                  Bot 本体（起動・/help・/web・新規メンバー対応）。Web サーバーも起動
+utils.py                 データ読み書き、学期判定、補講・休講・曜日/教室変更・試験自動追加の共通処理、定数
 cogs/
   class_cog.py           /class
   makeup_cog.py          /makeup, /cancel
   exam_cog.py            /exam
   notification_cog.py    授業前通知・朝の一覧・授業回数カウント、/notify
   setting_cog.py         /setting
+  mail_cog.py            /mail、Gmail の自動確認
 web_api_integration.py   Bot と一緒に動く FastAPI アプリ（ページ配信・公開 API）
 web_link_service.py      連携キーの発行・消費
 gmail_oauth.py           Gmail 認証（PKCE）の URL 発行・コード交換
+mail_service.py          Gmail からの休講・授業変更メールの取得・解析、連携解除
+account.py               利用者データの削除
 web/
   api/                   ダッシュボード用 API（classes, exams, makeup, settings, notification）
   auth.py, config.py     Discord OAuth2 と JWT

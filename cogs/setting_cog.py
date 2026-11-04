@@ -1,8 +1,11 @@
+import asyncio
+import logging
 import discord
 from discord import app_commands
 from discord.ext import commands
 import re
 from datetime import datetime
+from account import delete_account
 from utils import (
     load_user_data,
     save_user_data,
@@ -13,6 +16,53 @@ from utils import (
     TERM_SECOND,
     normalize_term_key,
 )
+
+logger = logging.getLogger(__name__)
+
+
+class DeleteDataConfirmView(discord.ui.View):
+    """データ削除の確認ボタン。"""
+
+    def __init__(self, bot: commands.Bot, user_id: int):
+        super().__init__(timeout=120)
+        self.bot = bot
+        self.user_id = user_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return interaction.user.id == self.user_id
+
+    def _disable_all(self):
+        for item in self.children:
+            item.disabled = True
+        self.stop()
+
+    @discord.ui.button(label="すべて削除する", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self._disable_all()
+        await interaction.response.edit_message(content="削除しています…", view=self)
+        try:
+            await asyncio.to_thread(delete_account, self.user_id)
+        except Exception as e:
+            logger.exception(f"[Account] データ削除失敗 user={self.user_id}: {e}")
+            await interaction.edit_original_response(
+                content="データの削除に失敗しました。時間をおいてもう一度お試しください。"
+            )
+            return
+        # 各 Cog のキャッシュに残った古いデータを使わないよう破棄する
+        for cog in self.bot.cogs.values():
+            for attr in ("user_cache", "_data_cache"):
+                cache = getattr(cog, attr, None)
+                if isinstance(cache, dict):
+                    cache.pop(self.user_id, None)
+        await interaction.edit_original_response(
+            content="時間割・設定・補講/休講・Gmail 連携など、保存していたデータをすべて削除しました。\n"
+            "通知も停止します。再び使うときは /class add などで登録し直してください。"
+        )
+
+    @discord.ui.button(label="やめる", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self._disable_all()
+        await interaction.response.edit_message(content="削除を取りやめました。", view=self)
 
 
 class SettingCog(commands.GroupCog, name="setting"):
@@ -25,7 +75,7 @@ class SettingCog(commands.GroupCog, name="setting"):
         current_mtime = get_user_data_mtime(user_id)
         if (
             user_id not in self.user_cache
-            or self.user_cache[user_id]["mtime"] < current_mtime
+            or self.user_cache[user_id]["mtime"] != current_mtime
         ):
             self.user_cache[user_id] = {
                 "mtime": current_mtime,
@@ -105,6 +155,7 @@ class SettingCog(commands.GroupCog, name="setting"):
         lines.append(
             f"  試験期間: {exam_cfg.get('first')}分前 / {exam_cfg.get('second')}分前"
         )
+        lines.append(f"  朝の一覧通知: {data.get('morning_notice_time', '08:00')}")
 
         lines.append("\n【学期の通知期間と授業回数】")
         term_ranges = data.get("term_ranges", {}) or {}
@@ -196,6 +247,40 @@ class SettingCog(commands.GroupCog, name="setting"):
 
         await interaction.response.send_message(
             f"{term}の期間を {start_date} から {end_date} に設定しました。", ephemeral=True
+        )
+
+    @app_commands.command(
+        name="morning_time", description="朝の授業一覧通知を送る時刻を設定します"
+    )
+    @app_commands.describe(time="送信時刻（例：07:30）")
+    async def set_morning_time(self, interaction: discord.Interaction, time: str):
+        time = time.strip()
+        if not re.match(r"^(2[0-3]|[01]?\d):[0-5]\d$", time):
+            await interaction.response.send_message(
+                "時刻は「HH:MM」の形式で入力してください（例：07:30）。", ephemeral=True
+            )
+            return
+        hh, mm = time.split(":")
+        time = f"{int(hh):02d}:{mm}"
+        user_id = interaction.user.id
+        data = self.get_data(user_id)
+        data["morning_notice_time"] = time
+        save_user_data(user_id, data)
+        await interaction.response.send_message(
+            f"朝の授業一覧を毎日 {time} に送ります。", ephemeral=True
+        )
+
+    @app_commands.command(
+        name="delete_data",
+        description="保存されている自分のデータ（時間割・設定・Gmail連携など）をすべて削除します",
+    )
+    async def delete_data(self, interaction: discord.Interaction):
+        await interaction.response.send_message(
+            "時間割・試験時間割・補講/休講・通知設定・Gmail 連携など、"
+            "このBotに保存されているあなたのデータをすべて削除します。\n"
+            "**元に戻せません。** よろしいですか？",
+            view=DeleteDataConfirmView(self.bot, interaction.user.id),
+            ephemeral=True,
         )
 
     @app_commands.command(

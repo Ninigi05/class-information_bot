@@ -17,7 +17,17 @@ from utils import (
     get_effective_term,
     get_makeups_on_date,
     get_room_for_date,
+    get_regular_classes_on_date,
+    get_weekday_for_date,
     is_class_cancelled,
+    list_day_overrides,
+    list_room_overrides,
+    set_day_override,
+    remove_day_override,
+    set_room_override,
+    remove_room_override,
+    sync_exam_for_class,
+    remove_exam_for_class,
     WEEKDAYS,
     WEEKDAY_MAP,
     PERIOD_TO_TIME,
@@ -41,7 +51,7 @@ class ClassCog(commands.GroupCog, name="class"):
             logger.info(f"[DEBUG] 初回キャッシュ: user={user_id}")
         if (
             user_id not in self.user_cache
-            or self.user_cache[user_id]["mtime"] < current_mtime
+            or self.user_cache[user_id]["mtime"] != current_mtime
         ):
             logger.info(
                 f"[DEBUG] キャッシュリロード: user={user_id} (old={self.user_cache.get(user_id, {}).get('mtime')}, new={current_mtime})"
@@ -239,7 +249,11 @@ class ClassCog(commands.GroupCog, name="class"):
         name="add", description="授業を登録します（曜日, 時限, 科目, 教室）"
     )
     @app_commands.describe(
-        weekday="曜日を選択", period="時限を選択", subject="科目", room="教室"
+        weekday="曜日を選択",
+        period="時限を選択",
+        subject="科目",
+        room="教室",
+        exam="定期試験があるか（既定: あり。ありの授業は試験時間割に自動で追加）",
     )
     @app_commands.autocomplete(
         weekday=weekday_autocomplete,
@@ -254,11 +268,17 @@ class ClassCog(commands.GroupCog, name="class"):
         period: str,
         subject: str,
         room: str,
+        exam: bool = True,
     ):
         await interaction.response.defer(ephemeral=True)
+        if weekday not in WEEKDAY_MAP or period not in PERIOD_TO_TIME:
+            await interaction.followup.send(
+                "曜日・時限は候補から選択してください", ephemeral=True
+            )
+            return
         user_id = interaction.user.id
         logger.info(
-            f"[Command] class add: user={user_id} {weekday} {period}限 {subject} ({room})"
+            f"[Command] class add: user={user_id} {weekday} {period}限 {subject} ({room}) exam={exam}"
         )
         data = self.get_data(user_id)
         term = get_effective_term(user_id)
@@ -271,20 +291,24 @@ class ClassCog(commands.GroupCog, name="class"):
                 and str(c.get("period")) == str(period)
             )
         ]
-        data["classes_by_term"][term].append(
-            {
-                "day": WEEKDAY_MAP[weekday],
-                "period": period,
-                "time": PERIOD_TO_TIME.get(period),
-                "subject": subject,
-                "room": room,
-            }
-        )
+        new_class = {
+            "day": WEEKDAY_MAP[weekday],
+            "period": period,
+            "time": PERIOD_TO_TIME.get(period),
+            "subject": subject,
+            "room": room,
+            "has_exam": exam,
+        }
+        data["classes_by_term"][term].append(new_class)
+        sync_exam_for_class(data, term, new_class)
         save_user_data(user_id, data)
         logger.info(f"[Data Change] class add: user={user_id} added class to {term}")
+        exam_note = (
+            "定期試験: あり（試験時間割に自動で追加します）" if exam else "定期試験: なし"
+        )
         await send_dm(
             interaction.user,
-            f"授業を登録しました：{weekday} {period}限 {subject} ({room})",
+            f"授業を登録しました：{weekday} {period}限 {subject} ({room})\n{exam_note}",
         )
         await interaction.followup.send("授業をDMで登録しました", ephemeral=True)
 
@@ -311,8 +335,10 @@ class ClassCog(commands.GroupCog, name="class"):
                 and str(c.get("period")) == str(period)
             )
         ]
-        save_user_data(user_id, data)
         removed = before - len(data.get("classes_by_term", {}).get(term, []))
+        if removed and weekday in WEEKDAY_MAP:
+            remove_exam_for_class(data, term, WEEKDAY_MAP[weekday], period)
+        save_user_data(user_id, data)
         logger.info(
             f"[Data Change] class remove: user={user_id} removed {removed} classes from {term}"
         )
@@ -421,6 +447,51 @@ class ClassCog(commands.GroupCog, name="class"):
             "登録授業一覧をDMで送信しました", ephemeral=True
         )
 
+    async def day_override_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ):
+        data = self.get_data(interaction.user.id)
+        choices = []
+        for d in list_day_overrides(data):
+            label = f"{d['date']} → {d['weekday']}"
+            if current in label:
+                choices.append(app_commands.Choice(name=label, value=d["date"]))
+        return choices[:25]
+
+    async def room_override_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ):
+        data = self.get_data(interaction.user.id)
+        choices = []
+        for r in list_room_overrides(data):
+            label = f"{r['date']} {r['period']}限 → {r['room']}"
+            if current in label:
+                choices.append(
+                    app_commands.Choice(
+                        name=label[:100], value=f"{r['date']}|{r['period']}"
+                    )
+                )
+        return choices[:25]
+
+    @staticmethod
+    def _has_class_on(data: dict, term: str, date: str, period: str) -> bool:
+        """指定日・時限に通常授業（試験期間中は試験の授業）があるか。"""
+        if any(
+            str(c.get("period")) == str(period)
+            for c in get_regular_classes_on_date(data, term, date)
+        ):
+            return True
+        weekday = get_weekday_for_date(data, date)
+        for sched in data.get("exam_schedules_by_term", {}).get(term, []) or []:
+            if not (sched.get("start", "") <= date <= sched.get("end", "")):
+                continue
+            for c in sched.get("classes", []) or []:
+                if str(c.get("period")) == str(period) and str(c.get("day")) == str(
+                    weekday
+                ):
+                    return True
+        return False
+
     @app_commands.command(
         name="setroom", description="特定日の特定授業の教室を変更します"
     )
@@ -433,7 +504,7 @@ class ClassCog(commands.GroupCog, name="class"):
     ):
         await interaction.response.defer(ephemeral=True)
         try:
-            target_date = datetime.strptime(date, "%Y-%m-%d").date()
+            datetime.strptime(date, "%Y-%m-%d")
         except Exception:
             await interaction.followup.send(
                 "日付形式が無効です。YYYY-MM-DD で指定してください", ephemeral=True
@@ -442,57 +513,44 @@ class ClassCog(commands.GroupCog, name="class"):
         user_id = interaction.user.id
         data = self.get_data(user_id)
         term = get_effective_term(user_id)
-        target_weekday = target_date.weekday()
-        found = False
-
-        # Apply to regular timetable classes that are actually scheduled on this date.
-        for cls in data.get("classes_by_term", {}).get(term, []):
-            if str(cls.get("period")) != str(period):
-                continue
-            effective_day = cls.get("day")
-            try:
-                if date in (cls.get("overrides") or {}):
-                    effective_day = (cls.get("overrides") or {}).get(date)
-                effective_day = int(effective_day)
-            except Exception:
-                continue
-            if effective_day != target_weekday:
-                continue
-
-            cls.setdefault("room_overrides", {})[date] = new_room
-            found = True
-
-        # Also apply to exam timetable classes that are active on this date.
-        for sched in data.get("exam_schedules_by_term", {}).get(term, []) or []:
-            start = str(sched.get("start", "")).strip()
-            end = str(sched.get("end", "")).strip()
-            if start and date < start:
-                continue
-            if end and date > end:
-                continue
-
-            for cls in sched.get("classes", []) or []:
-                if str(cls.get("period")) != str(period):
-                    continue
-                try:
-                    if int(cls.get("day")) != target_weekday:
-                        continue
-                except Exception:
-                    continue
-                cls.setdefault("room_overrides", {})[date] = new_room
-                found = True
-
-        if not found:
+        if not self._has_class_on(data, term, date, period):
             await interaction.followup.send(
                 "該当する授業が見つかりませんでした", ephemeral=True
             )
             return
+        try:
+            set_room_override(data, date, period, new_room)
+        except ValueError as e:
+            await interaction.followup.send(str(e), ephemeral=True)
+            return
         save_user_data(user_id, data)
         await send_dm(
             interaction.user,
-            f"{date} の {period}限の教室を {new_room} に変更しました",
+            f"{date} の {period}限の教室を {new_room} に変更しました\n"
+            "取り消すときは /class unsetroom を使ってください",
         )
         await interaction.followup.send("教室変更をDMに送信しました", ephemeral=True)
+
+    @app_commands.command(
+        name="unsetroom", description="/class setroom で変更した教室を元に戻します"
+    )
+    @app_commands.describe(target="取り消す教室変更")
+    @app_commands.autocomplete(target=room_override_autocomplete)
+    async def class_unsetroom(self, interaction: discord.Interaction, target: str):
+        date, _, period = target.partition("|")
+        user_id = interaction.user.id
+        data = self.get_data(user_id)
+        if not period or not remove_room_override(data, date, period):
+            await interaction.response.send_message(
+                "該当する教室変更が見つかりませんでした（候補から選択してください）",
+                ephemeral=True,
+            )
+            return
+        save_user_data(user_id, data)
+        logger.info(f"[Data Change] class unsetroom: user={user_id} {date} {period}")
+        await interaction.response.send_message(
+            f"{date} の {period}限の教室変更を取り消しました", ephemeral=True
+        )
 
     @app_commands.command(
         name="setday", description="特定日の曜日を変更（振替授業に適用）"
@@ -516,16 +574,35 @@ class ClassCog(commands.GroupCog, name="class"):
         user_id = interaction.user.id
         logger.info(f"[Command] class setday: user={user_id} {date} -> {new_weekday}")
         data = self.get_data(user_id)
-        # Web側の曜日上書きと同様に、前期・後期の全授業へ適用する
-        for term in (TERM_FIRST, TERM_SECOND):
-            for cls in data.get("classes_by_term", {}).get(term, []) or []:
-                cls.setdefault("overrides", {})[date] = WEEKDAY_MAP[new_weekday]
+        # 前期・後期の全授業に適用する
+        set_day_override(data, date, new_weekday)
         save_user_data(user_id, data)
         await send_dm(
             interaction.user,
-            f"{date} を {new_weekday} の時間割に変更しました",
+            f"{date} を {new_weekday} の時間割に変更しました\n"
+            "取り消すときは /class unsetday を使ってください",
         )
         await interaction.followup.send("曜日変更をDMに送信しました", ephemeral=True)
+
+    @app_commands.command(
+        name="unsetday", description="/class setday で変更した曜日を元に戻します"
+    )
+    @app_commands.describe(date="取り消す曜日変更の日付")
+    @app_commands.autocomplete(date=day_override_autocomplete)
+    async def class_unsetday(self, interaction: discord.Interaction, date: str):
+        user_id = interaction.user.id
+        data = self.get_data(user_id)
+        if not remove_day_override(data, date):
+            await interaction.response.send_message(
+                "該当する曜日変更が見つかりませんでした", ephemeral=True
+            )
+            return
+        save_user_data(user_id, data)
+        logger.info(f"[Data Change] class unsetday: user={user_id} {date}")
+        await interaction.response.send_message(
+            f"{date} の曜日変更を取り消しました（本来の曜日の時間割に戻ります）",
+            ephemeral=True,
+        )
 
     @app_commands.command(
         name="status", description="現在のシステム判定上の学期を表示します"
@@ -563,37 +640,24 @@ class ClassCog(commands.GroupCog, name="class"):
         term = get_effective_term(user_id)
         now = datetime.now()
         date_str = now.strftime("%Y-%m-%d")
-        day_idx = now.weekday()  # 0=Mon, 6=Sun
-        day_name = WEEKDAYS[day_idx]
+        day_name = WEEKDAYS[now.weekday()]
 
-        # 登録授業の取得
-        all_classes = data.get("classes_by_term", {}).get(term, []) or []
+        # 曜日変更を反映した、その日の通常授業
         today_classes = []
-
-        for cls in all_classes:
-            # 振替設定の確認
-            effective_day = cls.get("day")
-            overrides = cls.get("overrides") or {}
-            if date_str in overrides:
-                effective_day = overrides[date_str]
-
-            if effective_day == day_idx:
-                # 教室の個別変更確認
-                room = get_room_for_date(data, cls, date_str)
-
-                today_classes.append(
-                    {
-                        "period": cls.get("period"),
-                        "subject": cls.get("subject"),
-                        "room": room,
-                        "time": cls.get("time", "不明"),
-                        "mark": (
-                            "【休講】"
-                            if is_class_cancelled(data, date_str, cls.get("period"))
-                            else ""
-                        ),
-                    }
-                )
+        for cls in get_regular_classes_on_date(data, term, date_str):
+            today_classes.append(
+                {
+                    "period": cls.get("period"),
+                    "subject": cls.get("subject"),
+                    "room": get_room_for_date(data, cls, date_str),
+                    "time": cls.get("time", "不明"),
+                    "mark": (
+                        "【休講】"
+                        if is_class_cancelled(data, date_str, cls.get("period"))
+                        else ""
+                    ),
+                }
+            )
 
         for m in get_makeups_on_date(data, date_str):
             today_classes.append(

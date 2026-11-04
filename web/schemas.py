@@ -17,6 +17,7 @@ class ClassBase(BaseModel):
     period: str = Field(..., description="時限（1〜6）")
     subject: str = Field(..., description="授業名")
     room: str = Field(..., description="教室")
+    has_exam: bool = Field(True, description="定期試験の有無（ありの授業は試験時間割に自動追加）")
 
 
 class ClassCreate(ClassBase):
@@ -32,6 +33,7 @@ class ClassUpdate(BaseModel):
     period: Optional[str] = None
     subject: Optional[str] = None
     room: Optional[str] = None
+    has_exam: Optional[bool] = None
 
 
 class ClassResponse(ClassBase):
@@ -92,31 +94,21 @@ class ExamScheduleBase(BaseModel):
 
 
 class ExamScheduleCreate(ExamScheduleBase):
-    """試験時間割新規作成リクエスト"""
-
-    classes: Optional[List[ExamClassBase]] = Field(default=[], description="授業リスト")
+    """試験時間割新規作成リクエスト（定期試験ありの授業は自動で追加する）"""
 
 
-class ExamScheduleResponse(ExamScheduleBase):
-    """試験時間割レスポンス"""
+class ExamScheduleUpdate(BaseModel):
+    """試験時間割の名前・期間の変更リクエスト"""
 
-    classes: List[ExamClassBase] = Field(default=[], description="授業リスト")
-
-    class Config:
-        from_attributes = True
+    name: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
 
 
 class ExamClassAddRequest(ExamClassBase):
     """試験時間割に授業を追加するリクエスト"""
 
     pass
-
-
-class ExamClassRemoveRequest(BaseModel):
-    """試験時間割から授業を削除するリクエスト"""
-
-    weekday: str = Field(..., description="曜日")
-    period: str = Field(..., description="時限")
 
 
 # ============ 通知設定（Notify Settings）関連 ============
@@ -168,8 +160,10 @@ class TermSettingsUpdate(BaseModel):
 class NotifySettingsDraft(BaseModel):
     """通知設定（ドラフト）"""
 
-    normal_first: Optional[int] = None
-    normal_second: Optional[int] = None
+    normal_first: Optional[int] = Field(None, ge=0, le=180)
+    normal_second: Optional[int] = Field(None, ge=0, le=180)
+    exam_first: Optional[int] = Field(None, ge=0, le=180)
+    exam_second: Optional[int] = Field(None, ge=0, le=180)
     morning_time: Optional[str] = None
 
 
@@ -191,6 +185,27 @@ class OverridesBulkSaveRequest(BaseModel):
     room_overrides: List[dict] = Field(default=[], description="教室上書きリスト")
 
 
+class DayOverrideCreate(BaseModel):
+    """曜日変更の追加リクエスト"""
+
+    date: str = Field(..., description="日付（YYYY-MM-DD）")
+    weekday: str = Field(..., description="その日に使う時間割の曜日（月曜日〜日曜日）")
+
+
+class RoomOverrideCreate(BaseModel):
+    """教室変更の追加リクエスト"""
+
+    date: str = Field(..., description="日付（YYYY-MM-DD）")
+    period: str = Field(..., description="時限（1〜6）")
+    room: str = Field(..., description="変更後の教室")
+
+
+class GmailAutoScanUpdate(BaseModel):
+    """Gmail 自動確認の切り替えリクエスト"""
+
+    enabled: bool
+
+
 class GmailSettingsSaveRequest(BaseModel):
     """Gmail認証設定保存リクエスト"""
     gmail_auth_code: str = Field(..., description="GmailのOAuth2認証コード")
@@ -202,7 +217,10 @@ class SettingsShowResponse(BaseModel):
     """設定情報レスポンス"""
 
     period_times: dict = Field(..., description="時限ごとの開始時刻")
+    exam_period_times: dict = Field(default={}, description="試験期間中に設定した時限の開始時刻")
     term_settings: dict = Field(default={}, description="学期設定（前期・後期）")
+    notify: dict = Field(default={}, description="通知タイミングと朝の一覧通知の時刻")
+    gmail: dict = Field(default={}, description="Gmail 連携の状態")
 
 
 # ============ エラーレスポンス ============
