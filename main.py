@@ -745,6 +745,7 @@ def _enable_user_install_support(tree: app_commands.CommandTree) -> None:
             )
 
 
+@app_commands.checks.cooldown(1, 10, key=lambda i: i.user.id)
 @web_group.command(name="applykey", description="Webで発行した連携キーを取り込みます")
 @app_commands.describe(key="Web画面で発行した連携キー")
 async def web_applykey(interaction: discord.Interaction, key: str):
@@ -1029,6 +1030,26 @@ class ClassBot(commands.Bot):
 
 
 bot = ClassBot()
+
+
+@bot.tree.error
+async def on_app_command_error(
+    interaction: discord.Interaction, error: app_commands.AppCommandError
+):
+    """アプリコマンド共通のエラー処理（クールダウン中は残り時間を案内する）。"""
+    if isinstance(error, app_commands.CommandOnCooldown):
+        msg = f"連続実行はできません。あと {error.retry_after:.0f} 秒待ってからやり直してください。"
+    else:
+        logger.exception(f"[ERROR] app command error: {error}")
+        msg = "コマンドの実行中にエラーが発生しました。"
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(msg, ephemeral=True)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
+    except Exception:
+        pass
+
 
 # グローバルなbotインスタンス参照用
 _discord_bot_instance: Optional[commands.Bot] = None

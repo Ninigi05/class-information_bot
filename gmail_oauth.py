@@ -8,7 +8,6 @@ Gmail OAuth（PKCE）共通処理
 
 import os
 import glob
-import pickle
 import time
 import threading
 import logging
@@ -142,7 +141,10 @@ def exchange_code(
         raise GmailAuthError(
             "認証コードを確認できませんでした。認証URLの取得からやり直してください。"
         )
-    os.makedirs(TOKEN_DIR, exist_ok=True)
-    with open(os.path.join(TOKEN_DIR, f"user_{user_id}.pickle"), "wb") as f:
-        pickle.dump(flow.credentials, f)
+    import token_store
+
+    if not token_store.save_credentials(user_id, flow.credentials):
+        raise GmailAuthError(
+            "認証はできましたが、トークンの保存に失敗しました。管理者に連絡してください。"
+        )
     return flow.credentials

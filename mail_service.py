@@ -5,7 +5,6 @@ Gmail から休講・授業変更のメールを取得して解析する処理�
 import os
 import base64
 import logging
-import pickle
 import re
 import unicodedata
 from datetime import datetime
@@ -52,6 +51,7 @@ from utils import (
     get_term_for_date,
     get_regular_classes_on_date,
 )
+import token_store
 
 logger = logging.getLogger(__name__)
 BASE_DIR = os.getcwd()
@@ -72,7 +72,7 @@ def token_path(user_id) -> str:
 
 
 def has_gmail_token(user_id) -> bool:
-    return os.path.exists(token_path(user_id))
+    return token_store.credentials_exist(user_id)
 
 
 def list_linked_user_ids() -> list[int]:
@@ -81,7 +81,7 @@ def list_linked_user_ids() -> list[int]:
         return []
     ids = []
     for name in os.listdir(TOKEN_DIR):
-        m = re.fullmatch(r"user_(\d+)\.pickle", name)
+        m = re.fullmatch(r"user_(\d+)\.(?:pickle|json)", name)
         if m:
             ids.append(int(m.group(1)))
     return ids
@@ -92,12 +92,10 @@ def unlink_gmail(user_id) -> bool:
 
     トークンを削除したら True。Google 側の取り消しに失敗しても、保存したトークンは削除する。
     """
-    path = token_path(user_id)
     removed = False
-    if os.path.exists(path):
+    if token_store.credentials_exist(user_id):
         try:
-            with open(path, "rb") as f:
-                creds = pickle.load(f)
+            creds = token_store.load_credentials(user_id)
             token = getattr(creds, "refresh_token", None) or getattr(creds, "token", None)
             if token:
                 req = urllib.request.Request(
@@ -109,36 +107,13 @@ def unlink_gmail(user_id) -> bool:
                 urllib.request.urlopen(req, timeout=10).close()
         except Exception as e:
             logger.warning(f"[Gmail] トークンの取り消しに失敗 user={user_id}: {e}")
-        os.remove(path)
-        removed = True
-    if os.path.exists(path + ".bak"):
-        os.remove(path + ".bak")
-        removed = True
+        removed = token_store.delete_credentials(user_id)
     return removed
 
 
 # --- Gmailサービス取得 ---
 def get_gmail_service(user_id):
-    token_file = token_path(user_id)
-    creds = None
-
-    if os.path.exists(token_file):
-        try:
-            with open(token_file, "rb") as f:
-                creds = pickle.load(f)
-        except Exception as e:
-            logger.warning(
-                f"[WARNING] token ファイル読み込み失敗または破損 (user {user_id}): {e}"
-            )
-            try:
-                bad_backup = token_file + ".bak"
-                os.replace(token_file, bad_backup)
-                logger.info(
-                    f"[INFO] 不正な token を {bad_backup} に移動しました。/mail auth で再認証してください。"
-                )
-            except Exception:
-                pass
-            return None
+    creds = token_store.load_credentials(user_id)
 
     if creds is None or not hasattr(creds, "valid"):
         logger.info(f"Gmail認証が必要です（creds 不正/未設定）: user {user_id}")
@@ -151,8 +126,7 @@ def get_gmail_service(user_id):
             ):
                 try:
                     creds.refresh(Request())
-                    with open(token_file, "wb") as f:
-                        pickle.dump(creds, f)
+                    token_store.save_credentials(user_id, creds)
                     logger.info(
                         f"[INFO] トークンをリフレッシュしました: user {user_id}"
                     )

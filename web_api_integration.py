@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import time
+import ipaddress
 from collections import deque
 from threading import Lock, Thread
 from typing import Optional, Any, Literal
@@ -125,6 +126,89 @@ SERVABLE_EXTENSIONS = {
     ".html", ".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp", ".mp4",
 }
 
+
+# ============ 公開エンドポイントの回数制限 ============
+# ログイン不要のエンドポイントは、大量リクエストでディスクやメモリを埋められないよう IP 単位で制限する
+MAX_LINK_PAYLOAD_BYTES = 200 * 1024
+
+
+class _RateLimiter:
+    def __init__(self, limit: int, window_seconds: int):
+        self.limit = limit
+        self.window = window_seconds
+        self._hits: dict[str, deque] = {}
+        self._lock = Lock()
+
+    def hit(self, key: str) -> bool:
+        now = time.monotonic()
+        with self._lock:
+            if len(self._hits) > 10000:
+                # 古い記録しかない IP を捨ててメモリの肥大化を防ぐ
+                self._hits = {
+                    k: q for k, q in self._hits.items() if q and now - q[-1] < self.window
+                }
+            q = self._hits.setdefault(key, deque())
+            while q and now - q[0] >= self.window:
+                q.popleft()
+            if len(q) >= self.limit:
+                return False
+            q.append(now)
+            return True
+
+
+# cf-connecting-ip を信じてよい接続元（トンネルの cloudflared 等、身内の経路だけ）
+# ipaddress の is_private は文書用・予約済みアドレスまで含むため、範囲を明示する
+_TRUSTED_PROXY_NETWORKS = [
+    ipaddress.ip_network(n)
+    for n in (
+        "127.0.0.0/8",
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "169.254.0.0/16",
+        "::1/128",
+        "fc00::/7",
+        "fe80::/10",
+    )
+]
+
+
+def _is_trusted_proxy_peer(host: str) -> bool:
+    """cf-connecting-ip を信じてよい相手か（トンネルの cloudflared 等、身内の経路だけ）。"""
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return any(ip in net for net in _TRUSTED_PROXY_NETWORKS)
+
+
+def _client_ip(request: Request) -> str:
+    # Cloudflare Tunnel 経由では接続元が cloudflared（身内のIP）になるため、その場合だけ
+    # Cloudflare が付ける実際の接続元ヘッダーを使う。外部から直接届いたリクエストの
+    # ヘッダーは偽装できるので信じない。
+    peer = request.client.host if request.client else "unknown"
+    cf_ip = request.headers.get("cf-connecting-ip")
+    if cf_ip and _is_trusted_proxy_peer(peer):
+        return cf_ip
+    return peer
+
+
+def _rate_limited(limiter: _RateLimiter):
+    async def dependency(request: Request):
+        if not limiter.hit(_client_ip(request)):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="リクエストが多すぎます。しばらくしてからやり直してください。",
+            )
+
+    return Depends(dependency)
+
+
+_gmail_auth_url_limiter = _RateLimiter(limit=10, window_seconds=600)
+_issue_link_key_limiter = _RateLimiter(limit=20, window_seconds=600)
+_login_limiter = _RateLimiter(limit=10, window_seconds=600)
+
+
 # ============ 認証エンドポイント ============
 
 if HAS_AUTH:
@@ -143,7 +227,11 @@ if HAS_AUTH:
             raise HTTPException(status_code=500, detail=str(e))
 
 
-    @web_app.post("/api/auth/login", response_model=AuthResponse)
+    @web_app.post(
+        "/api/auth/login",
+        response_model=AuthResponse,
+        dependencies=[_rate_limited(_login_limiter)],
+    )
     async def login(code: str, response: Response):
         """
         Discord OAuth2 コードを使用してログイン (手順3, 4, 5)
@@ -447,56 +535,6 @@ def _build_feature_payload(
     # Persisted link payload must be JSON-serializable.
     return jsonable_encoder(out)
 
-
-# ============ 公開エンドポイントの回数制限 ============
-# ログイン不要のエンドポイントは、大量リクエストでディスクやメモリを埋められないよう IP 単位で制限する
-MAX_LINK_PAYLOAD_BYTES = 200 * 1024
-
-
-class _RateLimiter:
-    def __init__(self, limit: int, window_seconds: int):
-        self.limit = limit
-        self.window = window_seconds
-        self._hits: dict[str, deque] = {}
-        self._lock = Lock()
-
-    def hit(self, key: str) -> bool:
-        now = time.monotonic()
-        with self._lock:
-            if len(self._hits) > 10000:
-                # 古い記録しかない IP を捨ててメモリの肥大化を防ぐ
-                self._hits = {
-                    k: q for k, q in self._hits.items() if q and now - q[-1] < self.window
-                }
-            q = self._hits.setdefault(key, deque())
-            while q and now - q[0] >= self.window:
-                q.popleft()
-            if len(q) >= self.limit:
-                return False
-            q.append(now)
-            return True
-
-
-def _client_ip(request: Request) -> str:
-    # Cloudflare Tunnel 経由では接続元が cloudflared になるため、Cloudflare が付ける実際の接続元を使う
-    return request.headers.get("cf-connecting-ip") or (
-        request.client.host if request.client else "unknown"
-    )
-
-
-def _rate_limited(limiter: _RateLimiter):
-    async def dependency(request: Request):
-        if not limiter.hit(_client_ip(request)):
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="リクエストが多すぎます。しばらくしてからやり直してください。",
-            )
-
-    return Depends(dependency)
-
-
-_gmail_auth_url_limiter = _RateLimiter(limit=10, window_seconds=600)
-_issue_link_key_limiter = _RateLimiter(limit=20, window_seconds=600)
 
 
 # ============ ヘルスチェック ============

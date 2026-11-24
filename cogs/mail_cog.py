@@ -292,6 +292,7 @@ class MailCog(commands.GroupCog, name="mail"):
         )
         await interaction.followup.send("認証完了しました。", ephemeral=True)
 
+    @app_commands.checks.cooldown(1, 30, key=lambda i: i.user.id)
     @app_commands.command(
         name="fetch",
         description="Gmailから休講・授業変更情報を取得してDMで表示（確認後に時間割へ反映）",
