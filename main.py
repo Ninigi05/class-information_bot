@@ -231,10 +231,11 @@ def _apply_web_payload_to_user_data(user_data: dict, payload: dict) -> dict:
                 classes_raw or []
             )
     elif "classes" in payload:
+        # 単一リスト形式の授業は、キーを発行した学期（_meta.term）分だけ。
+        # feature=all でも両学期へは書き込まない（前期が後期分で消えるバグの修正）。
         classes_raw = payload.get("classes") or []
         classes = _convert_classes(classes_raw)
-        for target_term in target_terms:
-            user_data["classes_by_term"][target_term] = list(classes)
+        user_data["classes_by_term"][term] = list(classes)
 
     # 曜日変更・教室変更（Web の内容で置き換える）
     if "day_overrides" in payload:
@@ -282,9 +283,10 @@ def _apply_web_payload_to_user_data(user_data: dict, payload: dict) -> dict:
                 schedules_raw or []
             )
     elif "exam_schedules" in payload:
+        # 単一リスト形式の試験時間割は、キーを発行した学期（_meta.term）分だけ。
+        # feature=all でも両学期へは書き込まない（前期が後期分で消えるバグの修正）。
         schedules_out = _convert_exam_schedules(payload.get("exam_schedules") or [])
-        for target_term in target_terms:
-            user_data["exam_schedules_by_term"][target_term] = list(schedules_out)
+        user_data["exam_schedules_by_term"][term] = list(schedules_out)
 
     # 試験時間割を取り込まなかった場合は、定期試験ありの授業を既存の試験時間割へ反映する
     if "exam_schedules_by_term" not in payload and "exam_schedules" not in payload:
@@ -305,14 +307,25 @@ def _apply_web_payload_to_user_data(user_data: dict, payload: dict) -> dict:
     if "class_count_targets" in payload and isinstance(
         payload.get("class_count_targets"), dict
     ):
-        user_data.setdefault("class_count_targets", {}).update(
-            payload.get("class_count_targets") or {}
-        )
-        # Reset attendance count when updating targets
-        attendance = user_data.get("class_attendance_count", {}) or {}
-        for target_term in target_terms:
-            attendance[target_term] = {}
-        user_data["class_attendance_count"] = attendance
+        # 目標が実際に変わった学期だけ、出席カウントをリセットする。
+        # 空・同値のまま取り込んでも消えないようにする（通知キーにも
+        # class_count_targets が常に含まれるため、無条件リセットは事故になる）。
+        old_targets = user_data.get("class_count_targets") or {}
+        changed_terms: list[str] = []
+        new_targets = dict(old_targets)
+        for raw_term, raw_value in (payload.get("class_count_targets") or {}).items():
+            target_term = normalize_term_key(raw_term)
+            if target_term not in {TERM_FIRST, TERM_SECOND}:
+                continue
+            if old_targets.get(target_term) != raw_value:
+                changed_terms.append(target_term)
+            new_targets[target_term] = raw_value
+        user_data["class_count_targets"] = new_targets
+        if changed_terms:
+            attendance = user_data.get("class_attendance_count", {}) or {}
+            for changed_term in changed_terms:
+                attendance[changed_term] = {}
+            user_data["class_attendance_count"] = attendance
 
     return user_data
 
