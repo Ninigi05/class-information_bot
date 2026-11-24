@@ -798,7 +798,7 @@ class ClassBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         intents.members = True
-        intents.message_content = True
+        # message_content は不使用（プレフィックスコマンドなし）なので有効化しない
         # Let discord.py create its connector inside the running event loop.
         # Creating aiohttp.TCPConnector here can fail on newer aiohttp versions.
         super().__init__(command_prefix="!", intents=intents)

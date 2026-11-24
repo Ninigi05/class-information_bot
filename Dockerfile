@@ -20,4 +20,8 @@ RUN pip install --upgrade pip && pip install -r /app/requirements.txt
 
 COPY . /app
 
+# NOTE: 非root化は見送り中。Docker Desktop のバインドマウントでは uid の扱いが
+# 通常の Linux と異なり、データファイル（リポジトリ直下の JSON 群）へのアクセスが
+# 不安定になるため。データ専用ボリュームへ移行するフェーズで再挑戦する。
+
 CMD ["python", "main.py"]

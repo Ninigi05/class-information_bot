@@ -735,8 +735,15 @@ def save_user_data(user_id, data):
             merged = ours
             if base is not None:
                 theirs = _read_user_file(user_id)
-                if theirs is not None:
-                    merged = _merge_value(base, ours, theirs)
+                if theirs is None:
+                    # 既存ファイルが読めない（破損・権限エラー等）ときに、読み込みで得た
+                    # 空データで上書きすると登録内容が消える。保存を中止して元を守る
+                    # （2026-11-24 の上書き事故の再発防止）。
+                    logger.error(
+                        f"ユーザーデータ保存を中止: 既存ファイルが読めないため上書きしません user={user_id}"
+                    )
+                    return
+                merged = _merge_value(base, ours, theirs)
 
             # Write atomically: write to a unique temp file then replace
             fd, tmp_path = tempfile.mkstemp(

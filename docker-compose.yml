@@ -16,7 +16,7 @@ services:
       - DISCORD_FORCE_IPV4=1
       - AIOHTTP_DNS_TTL=60
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./:/app
     command: ["python", "main.py"]
