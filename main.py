@@ -5,6 +5,11 @@ import logging
 import glob
 import ssl
 import socket
+import copy
+import hashlib
+import json
+import time
+import uuid
 from typing import Optional
 
 from logging.handlers import RotatingFileHandler
@@ -350,6 +355,365 @@ async def _apply_gmail_auth_code_from_web(
         return False
 
 
+# --- 連携キー適用前確認（差分・保留・バックアップ） ---
+
+_PENDING_LINK_APPLY_TTL_SECONDS = 600
+_pending_link_applies: dict[int, dict] = {}
+
+
+def _user_data_digest(data) -> str:
+    raw = json.dumps(dict(data or {}), sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _class_slot_map(classes) -> dict:
+    out = {}
+    for c in classes or []:
+        out[(c.get("day"), str(c.get("period")))] = c
+    return out
+
+
+def _format_class_for_diff(c) -> str:
+    day = c.get("day")
+    day_name = WEEKDAYS[day] if isinstance(day, int) and 0 <= day < len(WEEKDAYS) else "不明"
+    return f"{day_name} {c.get('period')}限: {c.get('subject')} ({c.get('room')})"
+
+
+def _build_apply_diff_lines(old, new, payload) -> list[str]:
+    old = old or {}
+    new = new or {}
+    payload = payload or {}
+    lines: list[str] = []
+
+    for term in (TERM_FIRST, TERM_SECOND):
+        old_map = _class_slot_map((old.get("classes_by_term") or {}).get(term))
+        new_map = _class_slot_map((new.get("classes_by_term") or {}).get(term))
+        if old_map != new_map:
+            lines.append(f"【{term}】授業: {len(old_map)}件 → {len(new_map)}件")
+            for slot in sorted(set(old_map) | set(new_map), key=lambda s: (str(s[0]), str(s[1]))):
+                o, n = old_map.get(slot), new_map.get(slot)
+                if o is None:
+                    lines.append(f"  ・追加: {_format_class_for_diff(n)}")
+                elif n is None:
+                    lines.append(f"  ・削除: {_format_class_for_diff(o)}")
+                elif o != n:
+                    lines.append(f"  ・変更: {_format_class_for_diff(o)} → {_format_class_for_diff(n)}")
+
+    for term in (TERM_FIRST, TERM_SECOND):
+        old_exams = (old.get("exam_schedules_by_term") or {}).get(term) or []
+        new_exams = (new.get("exam_schedules_by_term") or {}).get(term) or []
+        if old_exams != new_exams:
+            old_names = [s.get("name") for s in old_exams]
+            new_names = [s.get("name") for s in new_exams]
+            lines.append(f"【{term}】試験時間割: {len(old_exams)}件 → {len(new_exams)}件")
+            for name in new_names:
+                if name not in old_names:
+                    lines.append(f"  ・追加: {name}")
+            for name in old_names:
+                if name not in new_names:
+                    lines.append(f"  ・削除: {name}")
+
+    if old.get("notify_settings") != new.get("notify_settings"):
+        lines.append("【通知設定】変更があります")
+    if old.get("morning_notice_time") != new.get("morning_notice_time"):
+        lines.append(f"【朝の通知時刻】{old.get('morning_notice_time')} → {new.get('morning_notice_time')}")
+
+    for key, label in (("period_overrides", "時限上書き"), ("exam_period_overrides", "試験時限上書き")):
+        if old.get(key) != new.get(key):
+            lines.append(f"【{label}】変更があります")
+    for key, label in (("day_overrides", "曜日上書き"), ("room_overrides", "教室上書き")):
+        if old.get(key) != new.get(key):
+            lines.append(f"【{label}】{len(old.get(key) or [])}件 → {len(new.get(key) or [])}件")
+
+    if old.get("term_start_dates") != new.get("term_start_dates") or old.get("term_ranges") != new.get("term_ranges"):
+        lines.append("【学期の日程設定】変更があります")
+
+    if old.get("class_count_targets") != new.get("class_count_targets"):
+        lines.append(f"【授業回数の目標】{old.get('class_count_targets') or {}} → {new.get('class_count_targets') or {}}")
+    for term in (TERM_FIRST, TERM_SECOND):
+        o_att = (old.get("class_attendance_count") or {}).get(term) or {}
+        n_att = (new.get("class_attendance_count") or {}).get(term) or {}
+        if o_att != n_att:
+            if o_att and not n_att:
+                lines.append(f"⚠ 【{term}】出席カウントはリセットされます（目標変更のため）")
+            else:
+                lines.append(f"【{term}】出席カウントが変更されます")
+
+    if (payload.get("gmail_auth_code") or "").strip():
+        lines.append("⚠ このキーには Gmail 連携が含まれています。適用すると Gmail 連携が更新されます。")
+
+    if len(lines) > 30:
+        lines = lines[:30] + [f"  …他 {len(lines) - 30} 件の変更"]
+    return lines
+
+
+def _stash_pending_link_apply(user_id: int, payload: dict, base_digest: str) -> str:
+    token = uuid.uuid4().hex
+    _pending_link_applies[user_id] = {
+        "token": token,
+        "payload": payload,
+        "base_digest": base_digest,
+        "created_monotonic": time.monotonic(),
+    }
+    return token
+
+
+def _get_pending_link_apply(user_id: int) -> dict | None:
+    pending = _pending_link_applies.get(user_id)
+    if not pending:
+        return None
+    if time.monotonic() - float(pending.get("created_monotonic") or 0) > _PENDING_LINK_APPLY_TTL_SECONDS:
+        _pending_link_applies.pop(user_id, None)
+        return None
+    return pending
+
+
+def _discard_pending_link_apply(user_id: int) -> None:
+    _pending_link_applies.pop(user_id, None)
+
+
+def _pending_apply_is_fresh(pending: dict | None, current_data) -> bool:
+    return bool(pending) and pending.get("base_digest") == _user_data_digest(current_data)
+
+
+def _apply_backup_dir(base_dir: str | None = None) -> str:
+    return os.path.join(base_dir or os.getcwd(), "backups")
+
+
+def _save_apply_backup(user_id: int, data, base_dir: str | None = None) -> str:
+    dirpath = _apply_backup_dir(base_dir)
+    os.makedirs(dirpath, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    filename = f"user_{user_id}_{stamp}.json"
+    counter = 1
+    while os.path.exists(os.path.join(dirpath, filename)):
+        counter += 1
+        filename = f"user_{user_id}_{stamp}-{counter}.json"
+    with open(os.path.join(dirpath, filename), "w", encoding="utf-8") as f:
+        json.dump(dict(data or {}), f, ensure_ascii=False, indent=2)
+    files = sorted(f for f in os.listdir(dirpath) if f.startswith(f"user_{user_id}_") and f.endswith(".json"))
+    for old_file in files[:-3]:
+        try:
+            os.remove(os.path.join(dirpath, old_file))
+        except OSError:
+            pass
+    return filename
+
+
+def _restore_apply_backup(user_id: int, filename: str, base_dir: str | None = None) -> dict | None:
+    if not filename or os.path.basename(filename) != filename:
+        return None
+    if not filename.startswith(f"user_{user_id}_"):
+        return None
+    path = os.path.join(_apply_backup_dir(base_dir), filename)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+class LinkApplyRollbackView(discord.ui.View):
+    def __init__(self, user_id: int, backup_filename: str, timeout: float = 3600):
+        super().__init__(timeout=timeout)
+        self.user_id = user_id
+        self.backup_filename = backup_filename
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return interaction.user.id == self.user_id
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+
+    @discord.ui.button(label="適用前に戻す", style=discord.ButtonStyle.danger)
+    async def rollback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        data = _restore_apply_backup(self.user_id, self.backup_filename)
+        if data is None:
+            await interaction.response.send_message("バックアップが見つかりませんでした。", ephemeral=True)
+            return
+        save_user_data(self.user_id, data)
+        button.disabled = True
+        self.stop()
+        await interaction.response.edit_message(view=self)
+        await interaction.followup.send("連携キーを適用する前の状態に戻しました。", ephemeral=True)
+
+
+class LinkApplyConfirmView(discord.ui.View):
+    def __init__(self, user_id: int, token: str, timeout: float = 600):
+        super().__init__(timeout=timeout)
+        self.user_id = user_id
+        self.token = token
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return interaction.user.id == self.user_id
+
+    async def on_timeout(self):
+        pending = _get_pending_link_apply(self.user_id)
+        if pending and pending.get("token") == self.token:
+            _discard_pending_link_apply(self.user_id)
+        for item in self.children:
+            item.disabled = True
+
+    def _disable_all(self):
+        for item in self.children:
+            item.disabled = True
+        self.stop()
+
+    @discord.ui.button(label="この内容で適用する", style=discord.ButtonStyle.primary)
+    async def apply_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        pending = _get_pending_link_apply(self.user_id)
+        if not pending or pending.get("token") != self.token:
+            self._disable_all()
+            await interaction.response.edit_message(
+                content="この確認は期限切れか、既に処理されています。必要なら /web applykey を実行し直してください。",
+                view=self,
+            )
+            return
+
+        payload = pending.get("payload") or {}
+        user_data = load_user_data(self.user_id)
+        if not _pending_apply_is_fresh(pending, user_data):
+            new_data = _apply_web_payload_to_user_data(copy.deepcopy(dict(user_data)), payload)
+            diff_lines = _build_apply_diff_lines(dict(user_data), new_data, payload)
+            pending["base_digest"] = _user_data_digest(user_data)
+            feature = ((payload.get("_meta") or {}).get("feature") or "all").strip()
+            term = normalize_term_key((payload.get("_meta") or {}).get("term"))
+            await interaction.response.edit_message(
+                content=(
+                    "確認中にデータが変更されていたため、差分を作り直しました。"
+                    "内容を確認して、もう一度ボタンを押してください。\n\n"
+                    + _format_link_apply_preview(feature, term, diff_lines)
+                ),
+                view=self,
+            )
+            return
+
+        _discard_pending_link_apply(self.user_id)
+        backup_filename = _save_apply_backup(self.user_id, dict(user_data))
+        user_data = _apply_web_payload_to_user_data(user_data, payload)
+        save_user_data(self.user_id, user_data)
+
+        gmail_ok = False
+        gmail_code = (payload.get("gmail_auth_code") or "").strip()
+        if gmail_code:
+            gmail_ok = await _apply_gmail_auth_code_from_web(
+                self.user_id, gmail_code, (payload.get("gmail_auth_state") or "").strip()
+            )
+
+        self._disable_all()
+        await interaction.response.edit_message(content="連携キーを適用しました。詳細をDMに送信しました。", view=self)
+        await _send_apply_result_dm(interaction.user, user_data, payload, gmail_ok)
+        await interaction.followup.send(
+            "適用前のデータはバックアップされています。戻す場合はこのボタンを押してください（1時間有効）。",
+            view=LinkApplyRollbackView(self.user_id, backup_filename),
+            ephemeral=True,
+        )
+
+    @discord.ui.button(label="キャンセル", style=discord.ButtonStyle.secondary)
+    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        pending = _get_pending_link_apply(self.user_id)
+        if pending and pending.get("token") == self.token:
+            _discard_pending_link_apply(self.user_id)
+        self._disable_all()
+        await interaction.response.edit_message(
+            content="キャンセルしました。データは変更されていません（キーは消費済みのため、使う場合はWeb側で再発行してください）。",
+            view=self,
+        )
+
+
+def _format_link_apply_preview(feature: str, term: str, diff_lines: list[str]) -> str:
+    feature_names = {
+        "all": "全体",
+        "classes": "通常時間割",
+        "notify": "通知設定",
+        "overrides": "上書き設定",
+        "gmail": "Gmail認証",
+        "exam": "試験設定",
+    }
+    body = "\n".join(diff_lines) if diff_lines else "（変更はありません）"
+    return (
+        "連携キーを適用すると、次の変更があります。\n"
+        f"■ 反映対象: {feature_names.get(feature, feature)} ({term})\n\n"
+        f"{body}\n\n"
+        "適用する場合はボタンを押してください（10分で自動キャンセル）。"
+    )
+
+
+async def _send_apply_result_dm(user, user_data, payload, gmail_ok: bool) -> None:
+    feature = ((payload.get("_meta") or {}).get("feature") or "all").strip()
+    term = normalize_term_key((payload.get("_meta") or {}).get("term"))
+    feature_names = {
+        "all": "全体",
+        "classes": "通常時間割",
+        "notify": "通知設定",
+        "overrides": "上書き設定",
+        "gmail": "Gmail認証",
+        "exam": "試験設定",
+    }
+    gmail_code = (payload.get("gmail_auth_code") or "").strip()
+    lines = [
+        "【Webダッシュボード通知】",
+        "Webダッシュボードからデータを反映しました。\n",
+        f"■ 反映対象: {feature_names.get(feature, feature)} ({term})\n",
+    ]
+
+    if feature in ["all", "classes"]:
+        classes = user_data.get("classes_by_term", {}).get(term, [])
+        lines.append("【通常時間割 反映内容】")
+        if classes:
+            for cls in classes:
+                day_name = WEEKDAYS[cls["day"]] if isinstance(cls.get("day"), int) and 0 <= cls["day"] < len(WEEKDAYS) else "不明"
+                lines.append(f"・{day_name} {cls.get('period')}限: {cls.get('subject')} ({cls.get('room')})")
+        else:
+            lines.append("・登録されている授業はありません。")
+        lines.append("")
+
+    if feature in ["all", "overrides"]:
+        day_ov = payload.get("day_overrides") or []
+        room_ov = payload.get("room_overrides") or []
+        lines.append("【時間割上書き設定 反映内容】")
+        if day_ov or room_ov:
+            if day_ov:
+                lines.append("■ 日付上書き（休講・授業変更など）:")
+                for d in day_ov:
+                    lines.append(f"  ・{d.get('date')}: {d.get('weekday')}時間割")
+            if room_ov:
+                lines.append("■ 教室上書き:")
+                for r in room_ov:
+                    lines.append(f"  ・{r.get('date')} {r.get('period')}限: ➔ {r.get('room')}")
+        else:
+            lines.append("・上書き設定はありません。")
+        lines.append("")
+
+    if feature in ["all", "gmail"] or gmail_code:
+        lines.append("【Gmail連携 反映内容】")
+        if gmail_ok:
+            lines.append("・Gmail認証連携を正常に完了しました！今後は定期的に Gmail を確認し、休講・授業変更のメールが届いたらDMでお知らせします。")
+        elif gmail_code:
+            lines.append("・Gmail認証連携に失敗しました。Web画面で認証URLの取得からやり直し、新しいキーを発行してください。")
+        else:
+            lines.append("・Gmail連携は今回更新されませんでした。")
+        lines.append("")
+
+    if feature in ["all", "exam"]:
+        exams = user_data.get("exam_schedules_by_term", {}).get(term, [])
+        lines.append("【試験時間割設定 反映内容】")
+        if exams:
+            for ex in exams:
+                lines.append(f"・{ex.get('name')} ({ex.get('start')} 〜 {ex.get('end')})")
+                for ec in ex.get("classes") or []:
+                    day_name = WEEKDAYS[ec["day"]] if isinstance(ec.get("day"), int) and 0 <= ec["day"] < len(WEEKDAYS) else "不明"
+                    lines.append(f"  └ {day_name} {ec.get('period')}限: {ec.get('subject')} ({ec.get('room')})")
+        else:
+            lines.append("・試験設定はありません。")
+        lines.append("")
+
+    await send_long_dm(user, "\n".join(lines))
+
+
 web_group = app_commands.Group(name="web", description="Web登録データを取り込み")
 
 
@@ -386,7 +750,6 @@ def _enable_user_install_support(tree: app_commands.CommandTree) -> None:
 async def web_applykey(interaction: discord.Interaction, key: str):
     await interaction.response.defer(ephemeral=True)
     user_id = interaction.user.id
-    term = get_current_term()
     payload = consume_link_key((key or "").strip().upper())
     if not payload:
         await interaction.followup.send(
@@ -396,121 +759,38 @@ async def web_applykey(interaction: discord.Interaction, key: str):
         return
 
     try:
-        user_data = load_user_data(user_id)
         feature = ((payload.get("_meta") or {}).get("feature") or "all").strip()
         term = normalize_term_key((payload.get("_meta") or {}).get("term"))
-        feature_names = {
-            "all": "全体",
-            "classes": "通常時間割",
-            "notify": "通知設定",
-            "overrides": "上書き設定",
-            "gmail": "Gmail認証",
-            "exam": "試験設定",
-        }
-        user_data = _apply_web_payload_to_user_data(user_data, payload)
-        save_user_data(user_id, user_data)
 
-        gmail_ok = False
-        gmail_code = (payload.get("gmail_auth_code") or "").strip()
-        if gmail_code:
-            gmail_ok = await _apply_gmail_auth_code_from_web(
-                user_id, gmail_code, (payload.get("gmail_auth_state") or "").strip()
-            )
-
-        # メッセージ行の詳細構築
-        lines = [
-            "【Webダッシュボード通知】",
-            "Webダッシュボードからデータを反映しました。\n",
-            f"■ 反映対象: {feature_names.get(feature, feature)} ({term})\n",
-        ]
-
-        # 1. 通常時間割 (Classes)
-        if feature in ["all", "classes"]:
-            classes = user_data.get("classes_by_term", {}).get(term, [])
-            lines.append("【通常時間割 反映内容】")
-            if classes:
-                for cls in classes:
-                    day_name = (
-                        WEEKDAYS[cls["day"]]
-                        if isinstance(cls.get("day"), int)
-                        and 0 <= cls["day"] < len(WEEKDAYS)
-                        else "不明"
-                    )
-                    lines.append(
-                        f"・{day_name} {cls.get('period')}限: {cls.get('subject')} ({cls.get('room')})"
-                    )
-            else:
-                lines.append("・登録されている授業はありません。")
-            lines.append("")
-
-        # 2. 上書き設定 (Overrides)
-        if feature in ["all", "overrides"]:
-            day_ov = payload.get("day_overrides") or []
-            room_ov = payload.get("room_overrides") or []
-            lines.append("【時間割上書き設定 反映内容】")
-            if day_ov or room_ov:
-                if day_ov:
-                    lines.append("■ 日付上書き（休講・授業変更など）:")
-                    for d in day_ov:
-                        lines.append(f"  ・{d.get('date')}: {d.get('weekday')}時間割")
-                if room_ov:
-                    lines.append("■ 教室上書き:")
-                    for r in room_ov:
-                        lines.append(
-                            f"  ・{r.get('date')} {r.get('period')}限: ➔ {r.get('room')}"
-                        )
-            else:
-                lines.append("・上書き設定はありません。")
-            lines.append("")
-
-        # 3. Gmail認証 (Gmail)
-        if feature in ["all", "gmail"] or gmail_code:
-            lines.append("【Gmail連携 反映内容】")
-            if gmail_ok:
-                lines.append(
-                    "・Gmail認証連携を正常に完了しました！今後は定期的に Gmail を確認し、休講・授業変更のメールが届いたらDMでお知らせします。"
-                )
-            elif gmail_code:
-                lines.append(
-                    "・Gmail認証連携に失敗しました。Web画面で認証URLの取得からやり直し、新しいキーを発行してください。"
-                )
-            else:
-                lines.append("・Gmail連携は今回更新されませんでした。")
-            lines.append("")
-
-        # 4. 試験設定 (Exam)
-        if feature in ["all", "exam"]:
-            exams = user_data.get("exam_schedules_by_term", {}).get(term, [])
-            lines.append("【試験時間割設定 反映内容】")
-            if exams:
-                for ex in exams:
-                    lines.append(
-                        f"・{ex.get('name')} ({ex.get('start')} 〜 {ex.get('end')})"
-                    )
-                    for ec in ex.get("classes") or []:
-                        day_name = (
-                            WEEKDAYS[ec["day"]]
-                            if isinstance(ec.get("day"), int)
-                            and 0 <= ec["day"] < len(WEEKDAYS)
-                            else "不明"
-                        )
-                        lines.append(
-                            f"  └ {day_name} {ec.get('period')}限: {ec.get('subject')} ({ec.get('room')})"
-                        )
-            else:
-                lines.append("・試験設定はありません。")
-            lines.append("")
-
-        await send_long_dm(interaction.user, "\n".join(lines))
-        await interaction.followup.send(
-            "反映が完了しました。詳細をDMに送信しました。", ephemeral=True
+        # その場では保存せず、まず差分を作って本人に確認してもらう
+        user_data = load_user_data(user_id)
+        new_data = _apply_web_payload_to_user_data(
+            copy.deepcopy(dict(user_data)), payload
         )
+        diff_lines = _build_apply_diff_lines(dict(user_data), new_data, payload)
+        gmail_code = (payload.get("gmail_auth_code") or "").strip()
+        if not diff_lines and not gmail_code:
+            await interaction.followup.send(
+                "このキーでは変更がありませんでした。データは変更されていません。",
+                ephemeral=True,
+            )
+            return
+
+        token = _stash_pending_link_apply(
+            user_id, payload, _user_data_digest(user_data)
+        )
+        view = LinkApplyConfirmView(user_id, token)
+        message = await interaction.followup.send(
+            _format_link_apply_preview(feature, term, diff_lines),
+            view=view,
+            ephemeral=True,
+        )
+        view.message = message
     except Exception as e:
         logger.exception(f"[ERROR] web_applykey error: {e}")
         await interaction.followup.send(
             f"取り込み中にエラーが発生しました: {e}", ephemeral=True
         )
-
 
 # --- Bot クラス ---
 class ClassBot(commands.Bot):
