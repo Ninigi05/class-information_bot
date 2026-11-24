@@ -242,7 +242,7 @@
 
   <script>
     // ログインチェック
-    const token = localStorage.getItem('token');
+    let token = localStorage.getItem('token');
     const userStr = localStorage.getItem('user');
     
     // トークンの有効期限を簡易チェック（JWTのペイロードからexpを取得）
@@ -261,17 +261,45 @@
       }
     }
 
-    if (!token || !userStr || isTokenExpired(token)) {
+    // 短い証（アクセストークン）が切れたら、長い証（httpOnly クッキー）で再発行を試す
+    async function refreshAccessToken() {
+      try {
+        const r = await fetch('/api/auth/refresh', { method: 'POST' });
+        if (!r.ok) return false;
+        const data = await r.json();
+        token = data.access_token;
+        localStorage.setItem('token', data.access_token);
+        if (data.user) localStorage.setItem('user', JSON.stringify(data.user));
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    if (!token || !userStr) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/login';
+    } else if (isTokenExpired(token)) {
+      refreshAccessToken().then((ok) => {
+        if (ok) {
+          window.location.reload();
+        } else {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          window.location.href = '/login';
+        }
+      });
+      // 再発行の結果が出るまで、切れた証での初期化は進めない
+      throw new Error('トークンを再発行しています');
     }
 
     const user = JSON.parse(userStr);
     document.getElementById('user-info').textContent = user.username + ' さん';
 
     // ログアウト処理
-    document.getElementById('logoutBtn').addEventListener('click', () => {
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (e) {}
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/login';
@@ -408,7 +436,11 @@
       };
       
       try {
-        const response = await fetch(endpoint, { ...options, headers });
+        let response = await fetch(endpoint, { ...options, headers });
+        if (response.status === 401 && await refreshAccessToken()) {
+          headers['Authorization'] = `Bearer ${token}`;
+          response = await fetch(endpoint, { ...options, headers });
+        }
         if (response.status === 401) {
           localStorage.removeItem('token');
           localStorage.removeItem('user');

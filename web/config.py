@@ -34,7 +34,10 @@ if len(SECRET_KEY) < 32:
         "SECRET_KEY が未設定、または短すぎます（32文字以上）。.env に設定してください。"
     )
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 30  # 30日間
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 短い証（アクセストークン）は1日
+REFRESH_TOKEN_EXPIRE_DAYS = 30  # 長い証（リフレッシュトークン）は30日
+REFRESH_COOKIE_NAME = "refresh_token"
+REFRESH_COOKIE_PATH = "/api/auth"
 
 # =============== データ保存先 ===============
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

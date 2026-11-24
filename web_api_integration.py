@@ -13,10 +13,12 @@ from typing import Optional, Any, Literal
 from pydantic import BaseModel, Field
 import gmail_oauth
 
-from fastapi import FastAPI, Depends, HTTPException, Request, status
+from fastapi import FastAPI, Depends, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
+
+from urllib.parse import urlparse
 
 from utils import TERM_FIRST, normalize_term_key
 from web_link_service import create_link_key, LinkKeyStoreFullError
@@ -25,7 +27,17 @@ logger = logging.getLogger(__name__)
 
 # Discord OAuth2 関連のインポート
 try:
-    from web.auth import authenticate_user, get_current_user, TokenData, get_login_url
+    from web.auth import (
+        authenticate_user,
+        get_current_user,
+        TokenData,
+        get_login_url,
+        create_access_token,
+        issue_refresh_token,
+        rotate_refresh_token,
+        revoke_refresh_token,
+    )
+    from web.config import REFRESH_COOKIE_NAME, REFRESH_COOKIE_PATH, REFRESH_TOKEN_EXPIRE_DAYS
     from web.schemas import AuthResponse, UserInfo, SuccessResponse, LoginUrlResponse
     HAS_AUTH = True
     logger.info("[Web Init] OAuth機能のインポートに成功しました (HAS_AUTH=True)")
@@ -132,7 +144,7 @@ if HAS_AUTH:
 
 
     @web_app.post("/api/auth/login", response_model=AuthResponse)
-    async def login(code: str):
+    async def login(code: str, response: Response):
         """
         Discord OAuth2 コードを使用してログイン (手順3, 4, 5)
         """
@@ -141,6 +153,10 @@ if HAS_AUTH:
             auth_response = await authenticate_user(code)
             logger.info(
                 f"[Web Auth] ユーザーがログインしました: {auth_response.user.user_id} ({auth_response.user.username})"
+            )
+            _set_refresh_cookie(
+                response,
+                issue_refresh_token(auth_response.user.user_id, auth_response.user.username),
             )
             return auth_response
         except HTTPException as he:
@@ -152,6 +168,49 @@ if HAS_AUTH:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="ログインに失敗しました",
             )
+
+
+    @web_app.post("/api/auth/refresh", response_model=AuthResponse)
+    async def refresh_session(request: Request, response: Response):
+        """
+        長い証（httpOnly クッキー）で短い証を再発行する。長い証も差し替える（ローテーション）。
+        """
+        _reject_cross_site_origin(request)
+        raw = request.cookies.get(REFRESH_COOKIE_NAME)
+        rotated = rotate_refresh_token(raw) if raw else None
+        if not rotated:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="リフレッシュトークンが無効です。再ログインしてください",
+            )
+        new_raw, record = rotated
+        _set_refresh_cookie(response, new_raw)
+        return AuthResponse(
+            access_token=create_access_token(record["user_id"], record["username"]),
+            token_type="bearer",
+            user=UserInfo(
+                user_id=record["user_id"],
+                username=record["username"],
+                avatar=None,
+            ),
+        )
+
+
+    @web_app.post("/api/auth/logout")
+    async def logout_session(request: Request, response: Response):
+        """長い証を無効化し、クッキーを消す。"""
+        _reject_cross_site_origin(request)
+        raw = request.cookies.get(REFRESH_COOKIE_NAME)
+        if raw:
+            revoke_refresh_token(raw)
+        response.delete_cookie(
+            REFRESH_COOKIE_NAME,
+            path=REFRESH_COOKIE_PATH,
+            secure=True,
+            httponly=True,
+            samesite="lax",
+        )
+        return {"ok": True}
 
 
     @web_app.get("/api/auth/me", response_model=UserInfo)
@@ -166,6 +225,35 @@ if HAS_AUTH:
             avatar=None,
         )
 
+def _set_refresh_cookie(response: Response, raw_token: str) -> None:
+    """長い証を httpOnly クッキーで渡す（スクリプトからは読めない）。"""
+    response.set_cookie(
+        key=REFRESH_COOKIE_NAME,
+        value=raw_token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path=REFRESH_COOKIE_PATH,
+        max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600,
+    )
+
+
+def _reject_cross_site_origin(request: Request) -> None:
+    """クッキーを自動送信する性質への備え（CSRF対策）:
+    Origin が付いていて、アクセス先ホストとも許可リストとも一致しない場合は拒否する。"""
+    origin = request.headers.get("origin")
+    if not origin:
+        return
+    origin_host = urlparse(origin).netloc
+    host = (
+        request.headers.get("x-forwarded-host")
+        or request.headers.get("host")
+        or request.url.netloc
+    ).split(",")[0].strip()
+    if origin_host and origin_host != host and _normalize_origin(origin) not in CORS_ORIGINS:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="許可されていないオリジンです")
+
+
 # ============ CORS 設定 ============
 # GitHub Pages など複数のドメインから利用可能に
 DEFAULT_CORS_ORIGINS = [
@@ -173,11 +261,11 @@ DEFAULT_CORS_ORIGINS = [
     "http://127.0.0.1:8000",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    # GitHub Pages 用（自分のリポジトリに合わせて実際のURLに変更）
-    "https://username.github.io",
 ]
 
-DEFAULT_CORS_REGEX = r"^https://([a-z0-9-]+\.)*github\.io$"
+# GitHub Pages は使わない方針（2026-11-24）のため、github.io の一括許可は廃止。
+# 許可するオリジンは DEFAULT_CORS_ORIGINS と環境変数で明示したものだけ。
+DEFAULT_CORS_REGEX = ""
 
 
 def _normalize_origin(value: str) -> str:
@@ -201,12 +289,12 @@ def _get_tunnel_origin() -> str:
     return _normalize_origin(value)
 
 
-def _build_cors_origin_regex() -> str:
-    """必要に応じて CORS の正規表現を組み立てる。"""
+def _build_cors_origin_regex() -> str | None:
+    """必要に応じて CORS の正規表現を組み立てる。未設定なら None（正規表現での許可なし）。"""
     user_regex = os.getenv("CORS_ORIGIN_REGEX", "").strip()
     if user_regex:
         return user_regex
-    return DEFAULT_CORS_REGEX
+    return DEFAULT_CORS_REGEX or None
 
 
 # 空の文字列を除外し重複を除去

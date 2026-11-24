@@ -2,6 +2,12 @@
 Discord OAuth2 認証処理
 """
 
+import hashlib
+import json
+import os
+import tempfile
+import threading
+
 import httpx
 import logging
 import secrets
@@ -23,6 +29,8 @@ from web.config import (
     SECRET_KEY,
     ALGORITHM,
     ACCESS_TOKEN_EXPIRE_MINUTES,
+    BASE_DIR,
+    REFRESH_TOKEN_EXPIRE_DAYS,
 )
 from web.schemas import UserInfo, AuthResponse, LoginUrlResponse
 
@@ -144,6 +152,7 @@ def create_access_token(user_id: int, username: str) -> str:
         "user_id": user_id,
         "username": username,
         "exp": expire,
+        "type": "access",
     }
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -172,6 +181,9 @@ def verify_token(token: str) -> TokenData:
         user_id: int = payload.get("user_id")
         username: str = payload.get("username")
         if user_id is None or username is None:
+            raise credentials_exception
+        token_type = payload.get("type")
+        if token_type is not None and token_type != "access":
             raise credentials_exception
     except JWTError:
         raise credentials_exception
@@ -233,3 +245,124 @@ async def authenticate_user(code: str) -> AuthResponse:
             avatar=avatar_url,
         ),
     )
+
+
+# =============== リフレッシュトークン（長い証） ===============
+# 長い証は推測できないランダム文字列で、サーバー側にはハッシュだけを保存する。
+# これにより「いつでも無効化できる」「再発行のたびに差し替える（ローテーション）」が可能になる。
+REFRESH_TOKENS_FILE = os.path.join(BASE_DIR, "refresh_tokens.json")
+_refresh_store_lock = threading.Lock()
+
+
+def _hash_refresh_token(raw: str) -> str:
+    return hashlib.sha256((raw or "").encode("utf-8")).hexdigest()
+
+
+def _load_refresh_store() -> dict:
+    try:
+        with open(REFRESH_TOKENS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_refresh_store(store: dict) -> None:
+    target_dir = os.path.dirname(os.path.abspath(REFRESH_TOKENS_FILE))
+    fd, tmp_path = tempfile.mkstemp(dir=target_dir, prefix=".refresh_tokens.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(store, f, ensure_ascii=False)
+        os.replace(tmp_path, REFRESH_TOKENS_FILE)
+    except BaseException:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def _refresh_record_expired(record: dict) -> bool:
+    try:
+        return datetime.fromisoformat(record.get("expires_at", "")) <= datetime.utcnow()
+    except ValueError:
+        return True
+
+
+def issue_refresh_token(user_id: int, username: str) -> str:
+    """長い証を発行して生の文字列を返す（サーバーにはハッシュだけが残る）。"""
+    raw = secrets.token_urlsafe(48)
+    now = datetime.utcnow()
+    with _refresh_store_lock:
+        store = _load_refresh_store()
+        # 期限切れの記録は掃除する（使い回し検知のため、期限内なら使い回された記録も残す）
+        store = {h: r for h, r in store.items() if not _refresh_record_expired(r)}
+        store[_hash_refresh_token(raw)] = {
+            "user_id": user_id,
+            "username": username,
+            "created_at": now.isoformat(),
+            "expires_at": (now + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)).isoformat(),
+            "revoked": False,
+            "rotated": False,
+        }
+        _save_refresh_store(store)
+    return raw
+
+
+def verify_refresh_token(raw: str) -> Optional[dict]:
+    """長い証が有効ならその記録を返す。副作用はない（確認だけ）。"""
+    if not raw:
+        return None
+    with _refresh_store_lock:
+        record = _load_refresh_store().get(_hash_refresh_token(raw))
+    if not record or record.get("revoked") or _refresh_record_expired(record):
+        return None
+    return dict(record)
+
+
+def rotate_refresh_token(raw: str) -> Optional[Tuple[str, dict]]:
+    """長い証を新しいものに差し替える。成功したら (新しい生トークン, 記録) を返す。
+    差し替え済みの古い証が再び使われた場合は失敗させる（警告ログのみ。
+    並行リクエストの競合でも起き得るため、ここでは一族全無効化まではしない）。"""
+    if not raw:
+        return None
+    with _refresh_store_lock:
+        store = _load_refresh_store()
+        record = store.get(_hash_refresh_token(raw))
+        if not record or _refresh_record_expired(record):
+            return None
+        if record.get("revoked"):
+            if record.get("rotated"):
+                logger.warning(
+                    f"[Web Auth] 差し替え済みリフレッシュトークンの再使用を検知: user={record.get('user_id')}"
+                )
+            return None
+        record["revoked"] = True
+        record["rotated"] = True
+        new_raw = secrets.token_urlsafe(48)
+        now = datetime.utcnow()
+        new_record = {
+            "user_id": record["user_id"],
+            "username": record["username"],
+            "created_at": now.isoformat(),
+            "expires_at": (now + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)).isoformat(),
+            "revoked": False,
+            "rotated": False,
+        }
+        store[_hash_refresh_token(new_raw)] = new_record
+        _save_refresh_store(store)
+        return new_raw, dict(new_record)
+
+
+def revoke_refresh_token(raw: str) -> bool:
+    """長い証を無効化する（ログアウト用）。無効化できたら True。"""
+    if not raw:
+        return False
+    with _refresh_store_lock:
+        store = _load_refresh_store()
+        record = store.get(_hash_refresh_token(raw))
+        if not record or record.get("revoked"):
+            return False
+        record["revoked"] = True
+        _save_refresh_store(store)
+        return True
