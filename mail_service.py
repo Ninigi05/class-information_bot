@@ -13,6 +13,37 @@ from zoneinfo import ZoneInfo
 
 import urllib.parse
 import urllib.request
+from email.utils import parseaddr
+
+# 公式の休講・授業変更メールとして確認できた送信者（2026-11-24 実績調査に基づく完全一致リスト）
+OFFICIAL_MAIL_SENDERS = frozenset(
+    {
+        "unipa_send_only@itp.kindai.ac.jp",  # 近畿大学メール配信専用（UNIPA の公式通知）
+        "no-reply@classroom.google.com",  # Google Classroom のお知らせ（先生名は表示名に入る）
+        "no-reply@kdu.mobi",  # KDU Mobile
+    }
+)
+
+
+def parse_sender(from_header: str) -> tuple[str, str]:
+    """From ヘッダーから (アドレス小文字, 表示名) を取り出す。判定は表示名でなくアドレスで行う。"""
+    display, addr = parseaddr(from_header or "")
+    return (addr or "").strip().lower(), (display or "").strip()
+
+
+def is_official_sender(from_header: str) -> bool:
+    """送信者アドレスが公式リストに完全一致するか。"""
+    addr, _ = parse_sender(from_header)
+    return bool(addr) and addr in OFFICIAL_MAIL_SENDERS
+
+
+def sender_label(from_header: str) -> str:
+    """DM 表示用の送信者表記（表示名があれば「表示名 <アドレス>」、なければアドレスのみ）。"""
+    addr, display = parse_sender(from_header)
+    if display and addr:
+        return f"{display} <{addr}>"
+    return addr or display or "（送信者不明）"
+
 from googleapiclient.discovery import build  # type: ignore[import-untyped]
 from google.auth.transport.requests import Request
 
@@ -26,7 +57,7 @@ logger = logging.getLogger(__name__)
 BASE_DIR = os.getcwd()
 TOKEN_DIR = os.path.join(BASE_DIR, "gmail_tokens")
 APP_TIMEZONE = (os.getenv("APP_TIMEZONE") or "Asia/Tokyo").strip()
-MAIL_QUERY = "subject:(休講 OR 授業変更 OR 曜日変更 OR 振替) newer_than:14d"
+MAIL_QUERY = "subject:(休講 OR 補講 OR 授業変更 OR 曜日変更 OR 振替) newer_than:14d"
 
 
 def now_local() -> datetime:
@@ -397,6 +428,9 @@ def scan_mail(user_id, skip_ids=()):
         subject_hdr = next(
             (h["value"] for h in headers if h.get("name") == "Subject"), ""
         )
+        from_hdr = next(
+            (h["value"] for h in headers if h.get("name") == "From"), ""
+        )
 
         def extract_text_from_parts(parts):
             for part in parts or []:
@@ -427,7 +461,9 @@ def scan_mail(user_id, skip_ids=()):
         if not body_text:
             body_text = m.get("snippet", "")
 
-        raw_list.append({"id": msg["id"], "subject": subject_hdr, "body": body_text})
+        raw_list.append(
+            {"id": msg["id"], "subject": subject_hdr, "body": body_text, "from": from_hdr}
+        )
 
     user_data = load_user_data(user_id)
 
@@ -437,6 +473,8 @@ def scan_mail(user_id, skip_ids=()):
         if not parsed:
             continue
         parsed["message_id"] = raw["id"]
+        parsed["sender"] = sender_label(raw.get("from") or "")
+        parsed["is_official_sender"] = is_official_sender(raw.get("from") or "")
 
         # 授業変更日の場合は、ユーザーの授業とのマッチングを行わずにリストに追加
         if parsed.get("type") == "schedule_change":

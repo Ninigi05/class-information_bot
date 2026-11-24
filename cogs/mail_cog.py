@@ -41,6 +41,13 @@ def _format_results(results: list[dict]) -> list[str]:
             period_display = item.get("period") or "?"
             subj = item.get("subject") or item.get("subject_header") or "（不明）"
             lines.append(f"【休講】{date_display} {period_display}限 {subj}")
+        sender = item.get("sender")
+        if sender:
+            lines.append(f"  送信者: {sender}")
+            if item.get("is_official_sender") is False:
+                lines.append(
+                    "  ⚠ 公式リスト外の送信者です。大学からの正式な連絡かどうか、内容をよく確認してください"
+                )
     return lines
 
 
